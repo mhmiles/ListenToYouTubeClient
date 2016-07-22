@@ -10,6 +10,13 @@
 		020A34591D42AD5500FF2107 /* ListenToYouTubeClient.h in Headers */ = {isa = PBXBuildFile; fileRef = 020A34581D42AD5500FF2107 /* ListenToYouTubeClient.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		020A34601D42AD5500FF2107 /* ListenToYouTubeClient.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34551D42AD5500FF2107 /* ListenToYouTubeClient.framework */; };
 		020A34651D42AD5500FF2107 /* ListenToYouTubeClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020A34641D42AD5500FF2107 /* ListenToYouTubeClientTests.swift */; };
+		020A34711D42AD7600FF2107 /* ListenToYouTubeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020A34701D42AD7600FF2107 /* ListenToYouTubeClient.swift */; };
+		020A34751D42AF6100FF2107 /* Alamofire.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34721D42AF6100FF2107 /* Alamofire.framework */; };
+		020A34761D42AF6100FF2107 /* ReactiveCocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34731D42AF6100FF2107 /* ReactiveCocoa.framework */; };
+		020A34771D42AF6100FF2107 /* Result.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34741D42AF6100FF2107 /* Result.framework */; };
+		020A34781D42AF8500FF2107 /* Alamofire.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34721D42AF6100FF2107 /* Alamofire.framework */; };
+		020A34791D42AF8500FF2107 /* ReactiveCocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34731D42AF6100FF2107 /* ReactiveCocoa.framework */; };
+		020A347A1D42AF8500FF2107 /* Result.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34741D42AF6100FF2107 /* Result.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,6 +36,11 @@
 		020A345F1D42AD5500FF2107 /* ListenToYouTubeClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ListenToYouTubeClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		020A34641D42AD5500FF2107 /* ListenToYouTubeClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenToYouTubeClientTests.swift; sourceTree = "<group>"; };
 		020A34661D42AD5500FF2107 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		020A346F1D42AD6400FF2107 /* Cartfile */ = {isa = PBXFileReference; lastKnownFileType = text; path = Cartfile; sourceTree = "<group>"; };
+		020A34701D42AD7600FF2107 /* ListenToYouTubeClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ListenToYouTubeClient.swift; sourceTree = "<group>"; };
+		020A34721D42AF6100FF2107 /* Alamofire.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Alamofire.framework; path = Carthage/Build/iOS/Alamofire.framework; sourceTree = "<group>"; };
+		020A34731D42AF6100FF2107 /* ReactiveCocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReactiveCocoa.framework; path = Carthage/Build/iOS/ReactiveCocoa.framework; sourceTree = "<group>"; };
+		020A34741D42AF6100FF2107 /* Result.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Result.framework; path = Carthage/Build/iOS/Result.framework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -36,6 +48,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				020A34751D42AF6100FF2107 /* Alamofire.framework in Frameworks */,
+				020A34761D42AF6100FF2107 /* ReactiveCocoa.framework in Frameworks */,
+				020A34771D42AF6100FF2107 /* Result.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -43,6 +58,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				020A34781D42AF8500FF2107 /* Alamofire.framework in Frameworks */,
+				020A34791D42AF8500FF2107 /* ReactiveCocoa.framework in Frameworks */,
+				020A347A1D42AF8500FF2107 /* Result.framework in Frameworks */,
 				020A34601D42AD5500FF2107 /* ListenToYouTubeClient.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -53,6 +71,10 @@
 		020A344B1D42AD5500FF2107 = {
 			isa = PBXGroup;
 			children = (
+				020A34721D42AF6100FF2107 /* Alamofire.framework */,
+				020A34731D42AF6100FF2107 /* ReactiveCocoa.framework */,
+				020A34741D42AF6100FF2107 /* Result.framework */,
+				020A346F1D42AD6400FF2107 /* Cartfile */,
 				020A34571D42AD5500FF2107 /* ListenToYouTubeClient */,
 				020A34631D42AD5500FF2107 /* ListenToYouTubeClientTests */,
 				020A34561D42AD5500FF2107 /* Products */,
@@ -72,6 +94,7 @@
 			isa = PBXGroup;
 			children = (
 				020A34581D42AD5500FF2107 /* ListenToYouTubeClient.h */,
+				020A34701D42AD7600FF2107 /* ListenToYouTubeClient.swift */,
 				020A345A1D42AD5500FF2107 /* Info.plist */,
 			);
 			path = ListenToYouTubeClient;
@@ -125,6 +148,7 @@
 				020A345B1D42AD5500FF2107 /* Sources */,
 				020A345C1D42AD5500FF2107 /* Frameworks */,
 				020A345D1D42AD5500FF2107 /* Resources */,
+				020A347B1D42AFA400FF2107 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -189,11 +213,31 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		020A347B1D42AFA400FF2107 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Carthage/Build/iOS/Result.framework",
+				"$(SRCROOT)/Carthage/Build/iOS/ReactiveCocoa.framework",
+				"$(SRCROOT)/Carthage/Build/iOS/Alamofire.framework",
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/local/bin/carthage copy-frameworks";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		020A34501D42AD5500FF2107 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				020A34711D42AD7600FF2107 /* ListenToYouTubeClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -310,26 +354,37 @@
 		020A346A1D42AD5500FF2107 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
 				DEFINES_MODULE = YES;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Carthage/Build/iOS",
+				);
 				INFOPLIST_FILE = ListenToYouTubeClient/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hollylabs.ListenToYouTubeClient;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
 		};
 		020A346B1D42AD5500FF2107 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
 				DEFINES_MODULE = YES;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Carthage/Build/iOS",
+				);
 				INFOPLIST_FILE = ListenToYouTubeClient/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
@@ -342,6 +397,10 @@
 		020A346D1D42AD5500FF2107 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Carthage/Build/iOS",
+				);
 				INFOPLIST_FILE = ListenToYouTubeClientTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hollylabs.ListenToYouTubeClientTests;
@@ -352,6 +411,10 @@
 		020A346E1D42AD5500FF2107 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Carthage/Build/iOS",
+				);
 				INFOPLIST_FILE = ListenToYouTubeClientTests/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hollylabs.ListenToYouTubeClientTests;
