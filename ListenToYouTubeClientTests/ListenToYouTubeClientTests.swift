@@ -33,7 +33,7 @@ class ListenToYouTubeClientTests: XCTestCase {
             
         }
         
-        waitForExpectationsWithTimeout(40.0) { (error) in
+        waitForExpectationsWithTimeout(60.0) { (error) in
             print(error)
         }
     }
