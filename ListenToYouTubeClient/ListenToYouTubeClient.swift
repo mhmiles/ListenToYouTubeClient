@@ -29,9 +29,7 @@ public class ListenToYouTubeClient {
     public static let sharedClient = ListenToYouTubeClient()
     
     public func audioStreamProducer(url: NSURL) -> SignalProducer<ListenToYouTubeStatus, NSError> {
-        return statusURLProducer(url).flatMap(.Latest, transform: { [unowned self] statusURL -> SignalProducer<ListenToYouTubeStatus, NSError>  in
-            return self.conversionStatusProducer(statusURL)
-        })
+        return statusURLProducer(url).flatMap(.Latest, transform: { self.conversionStatusProducer($0) })
     }
     
     internal func statusURLProducer(videoURL: NSURL) -> SignalProducer<NSURL, NSError> {
