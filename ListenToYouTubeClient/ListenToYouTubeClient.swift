@@ -7,41 +7,43 @@
 //
 
 import Foundation
-import ReactiveCocoa
+import ReactiveSwift
 import Alamofire
 import JavaScriptCore
 
-private let baseURL = NSURL(string: "http://www.listentoyoutube.com")!
+private let baseURL = URL(string: "http://www.listentoyoutube.com")!
 
 public struct ListenToYouTubeResult {
-    public let streamURL: NSURL
+    public let streamURL: URL
     public let title: String
 }
 
 public enum ListenToYouTubeStatus {
-    case WaitingForConversion
-    case Downloading(Int)
-    case Converting(Int)
-    case Success(ListenToYouTubeResult)
+    case waitingForConversion
+    case downloading(Int)
+    case converting(Int)
+    case success(ListenToYouTubeResult)
 }
 
-public class ListenToYouTubeClient {
-    public static let sharedClient = ListenToYouTubeClient()
+open class ListenToYouTubeClient {
+    open static let sharedClient = ListenToYouTubeClient()
     
-    public func audioStreamProducer(url: NSURL) -> SignalProducer<ListenToYouTubeStatus, NSError> {
-        return statusURLProducer(url).flatMap(.Latest, transform: { self.conversionStatusProducer($0) })
+    open func audioStreamProducer(_ url: URL) -> SignalProducer<ListenToYouTubeStatus, NSError> {
+        return statusURLProducer(url).flatMap(.latest, transform: { self.conversionStatusProducer($0) })
     }
     
-    internal func statusURLProducer(videoURL: NSURL) -> SignalProducer<NSURL, NSError> {
-        return SignalProducer<NSURL, NSError> { observer, disposable in
+    internal func statusURLProducer(_ videoURL: URL) -> SignalProducer<URL, NSError> {
+        return SignalProducer<URL, NSError> { observer, disposable in
             let parameters = ["mediaurl": videoURL.absoluteString,
                               "client_urlmap": "none"]
-            
-            Alamofire.request(.POST, baseURL.URLByAppendingPathComponent("cc/conversioncloud.php"), parameters: parameters, encoding: .URL, headers: nil).responseString { (response) in
+            Alamofire.request(baseURL.appendingPathComponent("cc/conversioncloud.php"), withMethod: .post, parameters: parameters, encoding: .url, headers: nil).responseString { (response) in
                 switch(response.result) {
-                case .Success(let jsonp):
-                    let context = JSContext()
-                    let evaluatedJSONP = context.evaluateScript(jsonp)
+                case .success(let jsonp):
+                    guard let context = JSContext(), let evaluatedJSONP = context.evaluateScript(jsonp) else {
+                        observer.sendFailed(NSError(domain: "JSContextError", code: 0, userInfo: nil))
+                        return
+                    }
+
                     if evaluatedJSONP.isUndefined {
                         observer.sendFailed(NSError(domain: "JSONP error", code: 0, userInfo: nil))
                         return
@@ -49,24 +51,27 @@ public class ListenToYouTubeClient {
                     
                     let statusURLString = evaluatedJSONP.toDictionary()["statusurl"] as! String
                     
-                    if let statusURL = NSURL(string: statusURLString) {
+                    if let statusURL = URL(string: statusURLString) {
                         observer.sendNext(statusURL)
                         observer.sendCompleted()
                     }
-                case .Failure(let error):
+                case .failure(let error):
                     observer.sendFailed(error)
                 }
             }
         }
     }
     
-    internal func conversionStatusProducer(statusURL: NSURL) -> SignalProducer<ListenToYouTubeStatus, NSError> {
+    internal func conversionStatusProducer(_ statusURL: URL) -> SignalProducer<ListenToYouTubeStatus, NSError> {
         return SignalProducer<ListenToYouTubeStatus, NSError> { observer, disposable in
-            Alamofire.request(.GET, statusURL.absoluteString+"&json").responseString { (response) in
+            Alamofire.request(statusURL.absoluteString+"&json", withMethod: .get).responseString { (response) in
                 switch(response.result) {
-                case .Success(let jsonp):
-                    let context = JSContext()
-                    let evaluatedJSONP = context.evaluateScript(jsonp)
+                case .success(let jsonp):
+                    guard let context = JSContext(), let evaluatedJSONP = context.evaluateScript(jsonp) else {
+                         observer.sendFailed(NSError(domain: "JSContextError", code: 0, userInfo: nil))
+                        return
+                    }
+                    
                     if evaluatedJSONP.isUndefined {
                        observer.sendFailed(NSError(domain: "JSONP error", code: 0, userInfo: nil))
                         return
@@ -74,29 +79,31 @@ public class ListenToYouTubeClient {
                     
                     let json = evaluatedJSONP.toDictionary()
 
-                    if let status = json["status"] as? [String: AnyObject], attributes = status["@attributes"] as? [String: AnyObject] {
+                    if let status = json?["status"] as? [String: AnyObject], let attributes = status["@attributes"] as? [String: AnyObject] {
                         switch(attributes["step"] as! String) {
                         case "ticket":
-                            observer.sendNext(.WaitingForConversion)
+                            observer.sendNext(.waitingForConversion)
                             
                         case "convert":
                             if let percent = Int(attributes["percent"] as! String) {
-                                observer.sendNext(ListenToYouTubeStatus.Converting(percent))
+                                observer.sendNext(ListenToYouTubeStatus.converting(percent))
                             }
                             
                         case "download":
                             if let percent = Int(attributes["percent"] as! String) {
-                                observer.sendNext(ListenToYouTubeStatus.Downloading(percent))
+                                observer.sendNext(ListenToYouTubeStatus.downloading(percent))
                             }
                             
                         case "finished":
-                            let fileName = json["file"] as! String
-                            let videoName = fileName.substringToIndex(fileName.startIndex.advancedBy(fileName.characters.count-4))
+                            let fileName = json?["file"] as! String
+                            let videoName = fileName.substring(to: fileName.characters.index(fileName.startIndex, offsetBy: fileName.characters.count-4))
                             
-                            if let streamURL = NSURL(string: json["downloadurl"] as! String) {
+                            if let streamURL = URL(string: json?["downloadurl"] as! String) {
                                 let result = ListenToYouTubeResult(streamURL: streamURL, title: videoName)
-                                observer.sendNext(ListenToYouTubeStatus.Success(result))
+                                observer.sendNext(ListenToYouTubeStatus.success(result))
                                 observer.sendCompleted()
+                            } else {
+                                observer.sendFailed(NSError(domain: "StreamURLError", code: 0, userInfo: nil))
                             }
                             return
                             
@@ -105,11 +112,11 @@ public class ListenToYouTubeClient {
                         }
                     }
                     
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, Int64(3*NSEC_PER_SEC)), dispatch_get_main_queue(), {
+                    DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + Double(Int64(3*NSEC_PER_SEC)) / Double(NSEC_PER_SEC), execute: {
                         disposable += self.conversionStatusProducer(statusURL).start(observer)
                     })
                     
-                case .Failure(let error):
+                case .failure(let error):
                     observer.sendFailed(error)
                 }
             }

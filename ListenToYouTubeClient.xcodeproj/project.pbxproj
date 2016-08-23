@@ -12,11 +12,11 @@
 		020A34651D42AD5500FF2107 /* ListenToYouTubeClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020A34641D42AD5500FF2107 /* ListenToYouTubeClientTests.swift */; };
 		020A34711D42AD7600FF2107 /* ListenToYouTubeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020A34701D42AD7600FF2107 /* ListenToYouTubeClient.swift */; };
 		020A34751D42AF6100FF2107 /* Alamofire.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34721D42AF6100FF2107 /* Alamofire.framework */; };
-		020A34761D42AF6100FF2107 /* ReactiveCocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34731D42AF6100FF2107 /* ReactiveCocoa.framework */; };
 		020A34771D42AF6100FF2107 /* Result.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34741D42AF6100FF2107 /* Result.framework */; };
 		020A34781D42AF8500FF2107 /* Alamofire.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34721D42AF6100FF2107 /* Alamofire.framework */; };
-		020A34791D42AF8500FF2107 /* ReactiveCocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34731D42AF6100FF2107 /* ReactiveCocoa.framework */; };
 		020A347A1D42AF8500FF2107 /* Result.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 020A34741D42AF6100FF2107 /* Result.framework */; };
+		025252271D6CD2D900A09322 /* ReactiveSwift.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 025252261D6CD2D900A09322 /* ReactiveSwift.framework */; };
+		025252281D6CD2E800A09322 /* ReactiveSwift.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 025252261D6CD2D900A09322 /* ReactiveSwift.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -39,8 +39,8 @@
 		020A346F1D42AD6400FF2107 /* Cartfile */ = {isa = PBXFileReference; lastKnownFileType = text; path = Cartfile; sourceTree = "<group>"; };
 		020A34701D42AD7600FF2107 /* ListenToYouTubeClient.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ListenToYouTubeClient.swift; sourceTree = "<group>"; };
 		020A34721D42AF6100FF2107 /* Alamofire.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Alamofire.framework; path = Carthage/Build/iOS/Alamofire.framework; sourceTree = "<group>"; };
-		020A34731D42AF6100FF2107 /* ReactiveCocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReactiveCocoa.framework; path = Carthage/Build/iOS/ReactiveCocoa.framework; sourceTree = "<group>"; };
 		020A34741D42AF6100FF2107 /* Result.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Result.framework; path = Carthage/Build/iOS/Result.framework; sourceTree = "<group>"; };
+		025252261D6CD2D900A09322 /* ReactiveSwift.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReactiveSwift.framework; path = Carthage/Build/iOS/ReactiveSwift.framework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -48,8 +48,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				025252271D6CD2D900A09322 /* ReactiveSwift.framework in Frameworks */,
 				020A34751D42AF6100FF2107 /* Alamofire.framework in Frameworks */,
-				020A34761D42AF6100FF2107 /* ReactiveCocoa.framework in Frameworks */,
 				020A34771D42AF6100FF2107 /* Result.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -59,7 +59,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				020A34781D42AF8500FF2107 /* Alamofire.framework in Frameworks */,
-				020A34791D42AF8500FF2107 /* ReactiveCocoa.framework in Frameworks */,
+				025252281D6CD2E800A09322 /* ReactiveSwift.framework in Frameworks */,
 				020A347A1D42AF8500FF2107 /* Result.framework in Frameworks */,
 				020A34601D42AD5500FF2107 /* ListenToYouTubeClient.framework in Frameworks */,
 			);
@@ -71,13 +71,11 @@
 		020A344B1D42AD5500FF2107 = {
 			isa = PBXGroup;
 			children = (
-				020A34721D42AF6100FF2107 /* Alamofire.framework */,
-				020A34731D42AF6100FF2107 /* ReactiveCocoa.framework */,
-				020A34741D42AF6100FF2107 /* Result.framework */,
 				020A346F1D42AD6400FF2107 /* Cartfile */,
 				020A34571D42AD5500FF2107 /* ListenToYouTubeClient */,
 				020A34631D42AD5500FF2107 /* ListenToYouTubeClientTests */,
 				020A34561D42AD5500FF2107 /* Products */,
+				025252251D6CD2D900A09322 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -107,6 +105,16 @@
 				020A34661D42AD5500FF2107 /* Info.plist */,
 			);
 			path = ListenToYouTubeClientTests;
+			sourceTree = "<group>";
+		};
+		025252251D6CD2D900A09322 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				020A34721D42AF6100FF2107 /* Alamofire.framework */,
+				020A34741D42AF6100FF2107 /* Result.framework */,
+				025252261D6CD2D900A09322 /* ReactiveSwift.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -172,9 +180,12 @@
 				TargetAttributes = {
 					020A34541D42AD5500FF2107 = {
 						CreatedOnToolsVersion = 7.3.1;
+						LastSwiftMigration = 0800;
 					};
 					020A345E1D42AD5500FF2107 = {
 						CreatedOnToolsVersion = 7.3.1;
+						DevelopmentTeam = 7XLNECBC46;
+						LastSwiftMigration = 0800;
 					};
 				};
 			};
@@ -223,6 +234,7 @@
 				"$(SRCROOT)/Carthage/Build/iOS/Result.framework",
 				"$(SRCROOT)/Carthage/Build/iOS/ReactiveCocoa.framework",
 				"$(SRCROOT)/Carthage/Build/iOS/Alamofire.framework",
+				"$(SRCROOT)/Carthage/Build/iOS/ReactiveSwift.framework",
 			);
 			outputPaths = (
 			);
@@ -371,6 +383,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 3.0;
 			};
 			name = Debug;
 		};
@@ -393,6 +406,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hollylabs.ListenToYouTubeClient;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 3.0;
 			};
 			name = Release;
 		};
@@ -400,6 +414,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = NO;
+				DEVELOPMENT_TEAM = 7XLNECBC46;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Carthage/Build/iOS",
@@ -408,6 +423,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hollylabs.ListenToYouTubeClientTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 3.0;
 			};
 			name = Debug;
 		};
@@ -415,6 +431,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = NO;
+				DEVELOPMENT_TEAM = 7XLNECBC46;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Carthage/Build/iOS",
@@ -423,6 +440,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.hollylabs.ListenToYouTubeClientTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 3.0;
 			};
 			name = Release;
 		};

@@ -8,18 +8,18 @@
 
 import XCTest
 @testable import ListenToYouTubeClient
-import ReactiveCocoa
+import ReactiveSwift
 
 class ListenToYouTubeClientTests: XCTestCase {
     func testSuccess() {
-        let expectation = expectationWithDescription("wait")
+        let timeout = expectation(description: "wait")
         
-        ListenToYouTubeClient.sharedClient.audioStreamProducer(NSURL(string: "https://www.youtube.com/watch?v=Lx_wbGNh2zU")!).startWithResult { result in
+        ListenToYouTubeClient.sharedClient.audioStreamProducer(NSURL(string: "https://www.youtube.com/watch?v=Lx_wbGNh2zU")! as URL).startWithResult { result in
             switch result {
-            case .Success(let status):
+            case .success(let status):
                 switch status {
-                case .Success:
-                    expectation.fulfill()
+                case .success:
+                    timeout.fulfill()
                     
                 default:
                     break
@@ -27,13 +27,13 @@ class ListenToYouTubeClientTests: XCTestCase {
                 
                 print(status)
                 
-            case .Failure(let error):
+            case .failure(let error):
                 print(error)
             }
             
         }
         
-        waitForExpectationsWithTimeout(60.0) { (error) in
+        waitForExpectations(timeout: 60.0) { (error) in
             print(error)
         }
     }

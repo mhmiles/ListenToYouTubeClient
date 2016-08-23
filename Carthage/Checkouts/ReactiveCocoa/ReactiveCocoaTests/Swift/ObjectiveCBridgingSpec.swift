@@ -6,6 +6,7 @@
 //  Copyright (c) 2015 GitHub. All rights reserved.
 //
 
+import ReactiveSwift
 import Result
 import Nimble
 import Quick
@@ -16,15 +17,15 @@ class ObjectiveCBridgingSpec: QuickSpec {
 	override func spec() {
 		describe("RACScheduler") {
 			var originalScheduler: RACTestScheduler!
-			var scheduler: DateSchedulerType!
+			var scheduler: DateSchedulerProtocol!
 
 			beforeEach {
 				originalScheduler = RACTestScheduler()
-				scheduler = originalScheduler as DateSchedulerType
+				scheduler = originalScheduler as DateSchedulerProtocol
 			}
 
 			it("gives current date") {
-				expect(scheduler.currentDate).to(beCloseTo(NSDate()))
+				expect(scheduler.currentDate).to(beCloseTo(Date(), within: 0.0002))
 			}
 
 			it("schedules actions") {
@@ -74,7 +75,7 @@ class ObjectiveCBridgingSpec: QuickSpec {
 			}
 
 			it("should forward errors")	{
-				let error = TestError.Default as NSError
+				let error = TestError.default as NSError
 
 				let racSignal = RACSignal.error(error)
 				let producer = racSignal.toSignalProducer()
@@ -85,7 +86,7 @@ class ObjectiveCBridgingSpec: QuickSpec {
 		}
 
 		describe("toRACSignal") {
-			let key = "TestKey"
+			let key = NSLocalizedDescriptionKey
 			let userInfo: [String: String] = [key: "TestValue"]
 			let testNSError = NSError(domain: "TestDomain", code: 1, userInfo: userInfo)
 			describe("on a Signal") {
@@ -105,8 +106,8 @@ class ObjectiveCBridgingSpec: QuickSpec {
 					expect(lastValue).to(beNil())
 
 					for number in [1, 2, 3] {
-						observer.sendNext(number)
-						expect(lastValue) == number
+						observer.sendNext(number as NSNumber)
+						expect(lastValue) == number as NSNumber
 					}
 
 					expect(didComplete) == false
@@ -118,33 +119,32 @@ class ObjectiveCBridgingSpec: QuickSpec {
 					let (signal, observer) = Signal<AnyObject, TestError>.pipe()
 					let racSignal = signal.toRACSignal()
 
-					let expectedError = TestError.Error2
-					var error: NSError?
+					let expectedError = TestError.error2
+					var error: TestError?
 
 					racSignal.subscribeError {
-						error = $0
+						error = $0 as? TestError
 						return
 					}
 
 					observer.sendFailed(expectedError)
-					expect(error) == expectedError as NSError
+					expect(error) == expectedError
 				}
 				
 				it("should maintain userInfo on NSError") {
 					let (signal, observer) = Signal<AnyObject, NSError>.pipe()
 					let racSignal = signal.toRACSignal()
 					
-					var error: NSError?
+					var error: String?
 					
 					racSignal.subscribeError {
-						error = $0
+						error = $0?.localizedDescription
 						return
 					}
 					
 					observer.sendFailed(testNSError)
-					
-					let userInfoValue = error?.userInfo[key] as? String
-					expect(userInfoValue) == userInfo[key]
+
+					expect(error) == userInfo[key]
 				}
 			}
 
@@ -157,7 +157,7 @@ class ObjectiveCBridgingSpec: QuickSpec {
 							subscriptions += 1
 						}
 
-						return .Success(subscriptions)
+						return .success(subscriptions as NSNumber)
 					}
 					let racSignal = producer.toRACSignal()
 
@@ -167,11 +167,11 @@ class ObjectiveCBridgingSpec: QuickSpec {
 				}
 
 				it("should convert errors to NSError") {
-					let producer = SignalProducer<AnyObject, TestError>(error: .Error1)
+					let producer = SignalProducer<AnyObject, TestError>(error: .error1)
 					let racSignal = producer.toRACSignal().materialize()
 
 					let event = racSignal.first() as? RACEvent
-					expect(event?.error) == TestError.Error1 as NSError
+					expect(event?.error as? NSError) == TestError.error1 as NSError
 				}
 				
 				it("should maintain userInfo on NSError") {
@@ -179,26 +179,26 @@ class ObjectiveCBridgingSpec: QuickSpec {
 					let racSignal = producer.toRACSignal().materialize()
 					
 					let event = racSignal.first() as? RACEvent
-					let userInfoValue = event?.error.userInfo[key] as? String
+					let userInfoValue = event?.error?.localizedDescription
 					expect(userInfoValue) == userInfo[key]
 				}
 			}
 		}
 
-		describe("RACCommand.toAction") {
-			var command: RACCommand!
+		describe("toAction") {
+			var command: RACCommand<AnyObject>!
 			var results: [Int] = []
 
 			var enabledSubject: RACSubject!
 			var enabled = false
 
-			var action: Action<AnyObject?, AnyObject?, NSError>!
+			var action: Action<Any?, Any?, NSError>!
 
 			beforeEach {
 				enabledSubject = RACSubject()
 				results = []
 
-				command = RACCommand(enabled: enabledSubject) { (input: AnyObject?) -> RACSignal! in
+				command = RACCommand(enabled: enabledSubject) { (input: AnyObject?) -> RACSignal in
 					let inputNumber = input as! Int
 					return RACSignal.`return`(inputNumber + 1)
 				}
@@ -211,19 +211,19 @@ class ObjectiveCBridgingSpec: QuickSpec {
 				command.executionSignals.flatten().subscribeNext { results.append($0 as! Int) }
 				expect(results) == []
 
-				action = command.toAction()
+				action = bridgedAction(from: command)
 			}
 
 			it("should reflect the enabledness of the command") {
-				expect(action.enabled.value) == true
+				expect(action.isEnabled.value) == true
 
 				enabledSubject.sendNext(false)
 				expect(enabled).toEventually(beFalsy())
-				expect(action.enabled.value) == false
+				expect(action.isEnabled.value) == false
 			}
 
 			it("should execute the command once per start()") {
-				let producer = action.apply(0)
+				let producer = action.apply(0 as NSNumber)
 				expect(results) == []
 
 				producer.start()
@@ -232,7 +232,7 @@ class ObjectiveCBridgingSpec: QuickSpec {
 				producer.start()
 				expect(results).toEventually(equal([ 1, 1 ]))
 
-				let otherProducer = action.apply(2)
+				let otherProducer = action.apply(2 as NSNumber)
 				expect(results) == [ 1, 1 ]
 
 				otherProducer.start()
@@ -249,7 +249,7 @@ class ObjectiveCBridgingSpec: QuickSpec {
 
 			var enabledProperty: MutableProperty<Bool>!
 
-			var command: RACCommand!
+			var command: RACCommand<AnyObject>!
 			var enabled = false
 			
 			beforeEach {
@@ -258,14 +258,14 @@ class ObjectiveCBridgingSpec: QuickSpec {
 
 				action = Action(enabledIf: enabledProperty) { input in
 					let inputNumber = input as! Int
-					return SignalProducer(value: "\(inputNumber + 1)")
+					return SignalProducer(value: "\(inputNumber + 1)" as NSString)
 				}
 
-				expect(action.enabled.value) == true
+				expect(action.isEnabled.value) == true
 
 				action.values.observeNext { results.append($0) }
 
-				command = toRACCommand(action)
+				command = action.toRACCommand()
 				expect(command).notTo(beNil())
 
 				command.enabled.subscribeNext { enabled = $0 as! Bool }
@@ -281,7 +281,7 @@ class ObjectiveCBridgingSpec: QuickSpec {
 			}
 
 			it("should apply and start a signal once per execution") {
-				let signal = command.execute(0)
+				let signal = command.execute(0 as NSNumber)
 
 				do {
 					try signal.asynchronouslyWaitUntilCompleted()
@@ -290,7 +290,7 @@ class ObjectiveCBridgingSpec: QuickSpec {
 					try signal.asynchronouslyWaitUntilCompleted()
 					expect(results) == [ "1" ]
 
-					try command.execute(2).asynchronouslyWaitUntilCompleted()
+					try command.execute(2 as NSNumber).asynchronouslyWaitUntilCompleted()
 					expect(results) == [ "1", "3" ]
 				} catch {
 					XCTFail("Failed to wait for completion")
