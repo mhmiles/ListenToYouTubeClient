@@ -26,7 +26,7 @@ public enum ListenToYouTubeStatus {
 }
 
 open class ListenToYouTubeClient {
-    open static let sharedClient = ListenToYouTubeClient()
+    open static let shared = ListenToYouTubeClient()
     
     open func audioStreamProducer(_ url: URL) -> SignalProducer<ListenToYouTubeStatus, NSError> {
         return statusURLProducer(url).flatMap(.latest, transform: { self.conversionStatusProducer($0) })
@@ -49,12 +49,16 @@ open class ListenToYouTubeClient {
                         return
                     }
                     
-                    let statusURLString = evaluatedJSONP.toDictionary()["statusurl"] as! String
+                    guard let statusURLString = evaluatedJSONP.toDictionary()["statusurl"] as? String else {
+                        observer.sendFailed(NSError(domain: "StatusURLError", code: 0, userInfo: nil))
+                        return
+                    }
                     
                     if let statusURL = URL(string: statusURLString) {
                         observer.sendNext(statusURL)
                         observer.sendCompleted()
                     }
+                    
                 case .failure(let error):
                     observer.sendFailed(error)
                 }
@@ -105,6 +109,7 @@ open class ListenToYouTubeClient {
                             } else {
                                 observer.sendFailed(NSError(domain: "StreamURLError", code: 0, userInfo: nil))
                             }
+                            
                             return
                             
                         default:

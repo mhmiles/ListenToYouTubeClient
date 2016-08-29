@@ -14,7 +14,7 @@ class ListenToYouTubeClientTests: XCTestCase {
     func testSuccess() {
         let timeout = expectation(description: "wait")
         
-        ListenToYouTubeClient.sharedClient.audioStreamProducer(NSURL(string: "https://www.youtube.com/watch?v=Lx_wbGNh2zU")! as URL).startWithResult { result in
+        ListenToYouTubeClient.shared.audioStreamProducer(URL(string: "https://www.youtube.com/watch?v=Lx_wbGNh2zU")! as URL).startWithResult { result in
             switch result {
             case .success(let status):
                 switch status {
@@ -29,6 +29,34 @@ class ListenToYouTubeClientTests: XCTestCase {
                 
             case .failure(let error):
                 print(error)
+            }
+            
+        }
+        
+        waitForExpectations(timeout: 60.0) { (error) in
+            print(error)
+        }
+    }
+    
+    func testFailure() {
+                let timeout = expectation(description: "wait")
+        
+        ListenToYouTubeClient.shared.audioStreamProducer(URL(string: "abcd")!).startWithResult { result in
+            switch result {
+            case .success(let status):
+                switch status {
+                case .success:
+                    timeout.fulfill()
+                    
+                default:
+                    break
+                }
+                
+                print(status)
+                
+            case .failure(let error):
+                print(error)
+                timeout.fulfill()
             }
             
         }
