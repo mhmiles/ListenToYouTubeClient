@@ -60,7 +60,9 @@ open class ListenToYouTubeClient {
                     }
                     
                 case .failure(let error):
-                    observer.sendFailed(error)
+                    if let nserror = error as? NSError {
+                        observer.sendFailed(nserror)
+                    }
                 }
             }
         }
@@ -122,7 +124,9 @@ open class ListenToYouTubeClient {
                     })
                     
                 case .failure(let error):
-                    observer.sendFailed(error)
+                    if let nserror = error as? NSError {
+                        observer.sendFailed(nserror)
+                    }
                 }
             }
         }
