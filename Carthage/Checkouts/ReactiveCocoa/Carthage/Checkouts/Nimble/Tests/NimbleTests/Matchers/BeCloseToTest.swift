@@ -16,6 +16,7 @@ final class BeCloseToTest: XCTestCase, XCTestCaseProvider {
             ("testBeCloseToWithinOperatorWithDate", testBeCloseToWithinOperatorWithDate),
             ("testPlusMinusOperatorWithDate", testPlusMinusOperatorWithDate),
             ("testBeCloseToArray", testBeCloseToArray),
+            ("testBeCloseToWithCGFloat", testBeCloseToWithCGFloat),
         ]
     }
 
@@ -47,6 +48,21 @@ final class BeCloseToTest: XCTestCase, XCTestCaseProvider {
         }
     }
     
+    func testBeCloseToWithCGFloat() {
+        expect(CGFloat(1.2)).to(beCloseTo(1.2001))
+        expect(CGFloat(1.2)).to(beCloseTo(CGFloat(1.2001)))
+
+        let got: String
+        #if _runtime(_ObjC)
+            got = "1.2"
+        #else
+            got = "CGFloat(native: 1.2)"
+        #endif
+        failsWithErrorMessage("expected to be close to <1.2001> (within 1), got <\(got)>") {
+            expect(CGFloat(1.2)).to(beCloseTo(1.2001, within: 1.0))
+        }
+    }
+
     func testBeCloseToWithDate() {
         expect(Date(dateTimeString: "2015-08-26 11:43:00")).to(beCloseTo(Date(dateTimeString: "2015-08-26 11:43:05"), within: 10))
         

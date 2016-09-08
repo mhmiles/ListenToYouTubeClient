@@ -1667,6 +1667,27 @@ class SignalProducerSpec: QuickSpec {
 				subsequentObserver.sendCompleted()
 				expect(completed) == true
 			}
+
+			it("works with NoError and TestError") {
+				let producer: SignalProducer<Int, TestError> = SignalProducer<Int, NoError>.empty
+					.then(SignalProducer<Int, TestError>.empty)
+
+				_ = producer
+			}
+
+			it("works with TestError and NoError") {
+				let producer: SignalProducer<Int, TestError> = SignalProducer<Int, TestError>.empty
+					.then(SignalProducer<Int, NoError>.empty)
+
+				_ = producer
+			}
+
+			it("works with NoError and NoError") {
+				let producer: SignalProducer<Int, NoError> = SignalProducer<Int, NoError>.empty
+					.then(SignalProducer<Int, NoError>.empty)
+
+				_ = producer
+			}
 		}
 
 		describe("first") {
@@ -2216,6 +2237,42 @@ class SignalProducerSpec: QuickSpec {
 					let _: SignalProducer<Int, NoError> = SignalProducer(values: [producer1, producer2])
 						.flatten(.merge)
 				}
+			}
+		}
+
+		describe("take(during:)") {
+			it("completes a signal when the lifetime ends") {
+				let (signal, observer) = Signal<Int, NoError>.pipe()
+				let object = MutableReference(TestObject())
+
+				let output = signal.take(during: object.value!.lifetime)
+
+				var results: [Int] = []
+				output.observeNext { results.append($0) }
+
+				observer.sendNext(1)
+				observer.sendNext(2)
+				object.value = nil
+				observer.sendNext(3)
+
+				expect(results) == [1, 2]
+			}
+
+			it("completes a signal producer when the lifetime ends") {
+				let (producer, observer) = Signal<Int, NoError>.pipe()
+				let object = MutableReference(TestObject())
+
+				let output = producer.take(during: object.value!.lifetime)
+
+				var results: [Int] = []
+				output.observeNext { results.append($0) }
+
+				observer.sendNext(1)
+				observer.sendNext(2)
+				object.value = nil
+				observer.sendNext(3)
+
+				expect(results) == [1, 2]
 			}
 		}
 	}

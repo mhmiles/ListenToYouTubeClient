@@ -81,8 +81,8 @@ public struct SignalProducer<Value, Error: Swift.Error> {
 	///
 	/// - parameters:
 	///   - result: A `Result` instance that will send either `next` event if
-	///             `result` is `Success`ful or `failed` event if `result` is a
-	///             `Failure`.
+	///             `result` is `success`ful or `failed` event if `result` is a
+	///             `failure`.
 	public init(result: Result<Value, Error>) {
 		switch result {
 		case let .success(value):
@@ -147,9 +147,9 @@ public struct SignalProducer<Value, Error: Swift.Error> {
 	/// - parameters:
 	///   - operation: A closure that returns instance of `Result`.
 	///
-	/// - returns: A `SignalProducer` that will forward `Success`ful `result` as
+	/// - returns: A `SignalProducer` that will forward `success`ful `result` as
 	///            `next` event and then complete or `failed` event if `result`
-	///            is a `Failure`.
+	///            is a `failure`.
 	public static func attempt(_ operation: @escaping () -> Result<Value, Error>) -> SignalProducer {
 		return self.init { observer, disposable in
 			operation().analysis(ifSuccess: { value in
@@ -270,8 +270,8 @@ extension SignalProducerProtocol {
 	/// received.
 	///
 	/// - parameters:
-	///   - result: A closure that accepts a `result` that contains a `Success`
-	///             case for `next` events or `Failure` case for `failed` event.
+	///   - result: A closure that accepts a `result` that contains a `.success`
+	///             case for `next` events or `.failure` case for `failed` event.
 	///
 	/// - returns:  A Disposable which can be used to interrupt the work
 	///             associated with the Signal, and prevent any future callbacks
@@ -1029,28 +1029,28 @@ extension SignalProducerProtocol {
 		return lift(Signal.zip(with:))(other)
 	}
 
-	/// Apply `operation` to values from `self` with `Success`ful results
-	/// forwarded on the returned producer and `Failure`s sent as `failed`
+	/// Apply `operation` to values from `self` with `success`ful results
+	/// forwarded on the returned producer and `failure`s sent as `failed`
 	/// events.
 	///
 	/// - parameters:
 	///   - operation: A closure that accepts a value and returns a `Result`.
 	///
-	/// - returns: A producer that receives `Success`ful `Result` as `next`
-	///            event and `Failure` as `failed` event.
+	/// - returns: A producer that receives `success`ful `Result` as `next`
+	///            event and `failure` as `failed` event.
 	public func attempt(operation: @escaping (Value) -> Result<(), Error>) -> SignalProducer<Value, Error> {
 		return lift { $0.attempt(operation) }
 	}
 
-	/// Apply `operation` to values from `self` with `Success`ful results
-	/// mapped on the returned producer and `Failure`s sent as `failed` events.
+	/// Apply `operation` to values from `self` with `success`ful results
+	/// mapped on the returned producer and `failure`s sent as `failed` events.
 	///
 	/// - parameters:
 	///   - operation: A closure that accepts a value and returns a result of
-	///                a mapped value as `Success`.
+	///                a mapped value as `success`.
 	///
 	/// - returns: A producer that sends mapped values from `self` if returned
-	///            `Result` is `Success`ful, `failed` events otherwise.
+	///            `Result` is `success`ful, `failed` events otherwise.
 	public func attemptMap<U>(_ operation: @escaping (Value) -> Result<U, Error>) -> SignalProducer<U, Error> {
 		return lift { $0.attemptMap(operation) }
 	}
@@ -1175,6 +1175,22 @@ extension SignalProducerProtocol where Error == NoError {
 		on scheduler: DateSchedulerProtocol
 	) -> SignalProducer<Value, NewError> {
 		return lift { $0.timeout(after: interval, raising: error, on: scheduler) }
+	}
+
+	/// Wait for completion of `self`, *then* forward all events from
+	/// `replacement`.
+	///
+	/// - note: All values sent from `self` are ignored.
+	///
+	/// - parameters:
+	///   - replacement: A producer to start when `self` completes.
+	///
+	/// - returns: A producer that sends events from `self` and then from
+	///            `replacement` when `self` completes.
+	public func then<U, NewError: Swift.Error>(_ replacement: SignalProducer<U, NewError>) -> SignalProducer<U, NewError> {
+		return self
+			.promoteErrors(NewError.self)
+			.then(replacement)
 	}
 }
 
@@ -1576,6 +1592,22 @@ extension SignalProducerProtocol {
 		}
 	}
 
+	/// Wait for completion of `self`, *then* forward all events from
+	/// `replacement`. Any failure or interruption sent from `self` is
+	/// forwarded immediately, in which case `replacement` will not be started,
+	/// and none of its events will be be forwarded.
+	///
+	/// - note: All values sent from `self` are ignored.
+	///
+	/// - parameters:
+	///   - replacement: A producer to start when `self` completes.
+	///
+	/// - returns: A producer that sends events from `self` and then from
+	///            `replacement` when `self` completes.
+	public func then<U>(_ replacement: SignalProducer<U, NoError>) -> SignalProducer<U, Error> {
+		return self.then(replacement.promoteErrors(Error.self))
+	}
+
 	/// Start the producer, then block, waiting for the first value.
 	///
 	/// When a single value or error is sent, the returned `Result` will
@@ -1639,7 +1671,7 @@ extension SignalProducerProtocol {
 	/// When a completion or error is sent, the returned `Result` will represent
 	/// those cases.
 	///
-	/// - returns: Result when single `Completion` or `failed` event is 
+	/// - returns: Result when single `completion` or `failed` event is
 	///            received.
 	public func wait() -> Result<(), Error> {
 		return then(SignalProducer<(), Error>(value: ())).last() ?? .success(())

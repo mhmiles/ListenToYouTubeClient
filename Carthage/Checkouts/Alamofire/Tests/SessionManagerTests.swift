@@ -28,7 +28,53 @@ import XCTest
 
 class SessionManagerTestCase: BaseTestCase {
 
-    // MARK: Initialization Tests
+    // MARK: Helper Types
+
+    private class HTTPMethodAdapter: RequestAdapter {
+        let method: HTTPMethod
+
+        init(method: HTTPMethod) {
+            self.method = method
+        }
+
+        func adapt(_ urlRequest: URLRequest) -> URLRequest {
+            var urlRequest = urlRequest
+            urlRequest.httpMethod = method.rawValue
+            return urlRequest
+        }
+    }
+
+    private class RequestHandler: RequestAdapter, RequestRetrier {
+        var adaptedCount = 0
+        var retryCount = 0
+        var shouldApplyAuthorizationHeader = false
+
+        func adapt(_ urlRequest: URLRequest) -> URLRequest {
+            var urlRequest = urlRequest
+
+            adaptedCount += 1
+
+            if shouldApplyAuthorizationHeader && adaptedCount > 1 {
+                if let header = Request.authorizationHeader(user: "user", password: "password") {
+                    urlRequest.setValue(header.value, forHTTPHeaderField: header.key)
+                }
+            }
+
+            return urlRequest
+        }
+
+        func should(_ manager: SessionManager, retry request: Request, with error: Error, completion: RequestRetryCompletion) {
+            retryCount += 1
+
+            if retryCount < 2 {
+                completion(true, 0.0)
+            } else {
+                completion(false, 0.0)
+            }
+        }
+    }
+
+    // MARK: Tests - Initialization
 
     func testInitializerWithDefaultArguments() {
         // Given, When
@@ -131,7 +177,50 @@ class SessionManagerTestCase: BaseTestCase {
         XCTAssertNil(manager, "manager should be nil")
     }
 
-    // MARK: Start Requests Immediately Tests
+    // MARK: Tests - Default HTTP Headers
+
+    func testDefaultUserAgentHeader() {
+        // Given, When
+        let userAgent = SessionManager.defaultHTTPHeaders["User-Agent"]
+
+        // Then
+        let osNameVersion: String = {
+            let version = ProcessInfo.processInfo.operatingSystemVersion
+            let versionString = "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+
+            let osName: String = {
+                #if os(iOS)
+                    return "iOS"
+                #elseif os(watchOS)
+                    return "watchOS"
+                #elseif os(tvOS)
+                    return "tvOS"
+                #elseif os(OSX)
+                    return "OS X"
+                #elseif os(Linux)
+                    return "Linux"
+                #else
+                    return "Unknown"
+                #endif
+            }()
+
+            return "\(osName) \(versionString)"
+        }()
+
+        let alamofireVersion: String = {
+            guard
+                let afInfo = Bundle(for: SessionManager.self).infoDictionary,
+                let build = afInfo["CFBundleShortVersionString"]
+            else { return "Unknown" }
+
+            return "Alamofire/\(build)"
+        }()
+
+        let expectedUserAgent = "Unknown/Unknown (Unknown; build:Unknown; \(osNameVersion)) \(alamofireVersion)"
+        XCTAssertEqual(userAgent, expectedUserAgent)
+    }
+
+    // MARK: Tests - Start Requests Immediately
 
     func testSetStartRequestsImmediatelyToFalseAndResumeRequest() {
         // Given
@@ -147,8 +236,8 @@ class SessionManagerTestCase: BaseTestCase {
 
         // When
         manager.request(urlRequest)
-            .response { _, responseResponse, _, _ in
-                response = responseResponse
+            .response { resp in
+                response = resp.response
                 expectation.fulfill()
             }
             .resume()
@@ -160,7 +249,7 @@ class SessionManagerTestCase: BaseTestCase {
         XCTAssertTrue(response?.statusCode == 200, "response status code should be 200")
     }
 
-    // MARK: Deinitialization Tests
+    // MARK: Tests - Deinitialization
 
     func testReleasingManagerWithPendingRequestDeinitializesSuccessfully() {
         // Given
@@ -197,11 +286,148 @@ class SessionManagerTestCase: BaseTestCase {
         XCTAssertTrue(state == .canceling || state == .completed, "state should be .Canceling or .Completed")
         XCTAssertNil(manager, "manager should be nil")
     }
+
+    // MARK: Tests - Request Adapter
+
+    func testThatSessionManagerCallsRequestAdapterWhenCreatingDataRequest() {
+        // Given
+        let adapter = HTTPMethodAdapter(method: .post)
+
+        let sessionManager = SessionManager()
+        sessionManager.adapter = adapter
+        sessionManager.startRequestsImmediately = false
+
+        // When
+        let request = sessionManager.request("https://httpbin.org/get")
+
+        // Then
+        XCTAssertEqual(request.task.originalRequest?.httpMethod, adapter.method.rawValue)
+    }
+
+    func testThatSessionManagerCallsRequestAdapterWhenCreatingDownloadRequest() {
+        // Given
+        let adapter = HTTPMethodAdapter(method: .post)
+
+        let sessionManager = SessionManager()
+        sessionManager.adapter = adapter
+        sessionManager.startRequestsImmediately = false
+
+        // When
+        let destination = DownloadRequest.suggestedDownloadDestination()
+        let request = sessionManager.download("https://httpbin.org/get", to: destination)
+
+        // Then
+        XCTAssertEqual(request.task.originalRequest?.httpMethod, adapter.method.rawValue)
+    }
+
+    func testThatSessionManagerCallsRequestAdapterWhenCreatingUploadRequestWithData() {
+        // Given
+        let adapter = HTTPMethodAdapter(method: .get)
+
+        let sessionManager = SessionManager()
+        sessionManager.adapter = adapter
+        sessionManager.startRequestsImmediately = false
+
+        // When
+        let request = sessionManager.upload("data".data(using: .utf8)!, to: "https://httpbin.org/post")
+
+        // Then
+        XCTAssertEqual(request.task.originalRequest?.httpMethod, adapter.method.rawValue)
+    }
+
+    func testThatSessionManagerCallsRequestAdapterWhenCreatingUploadRequestWithFile() {
+        // Given
+        let adapter = HTTPMethodAdapter(method: .get)
+
+        let sessionManager = SessionManager()
+        sessionManager.adapter = adapter
+        sessionManager.startRequestsImmediately = false
+
+        // When
+        let fileURL = URL(fileURLWithPath: "/path/to/some/file.txt")
+        let request = sessionManager.upload(fileURL, to: "https://httpbin.org/post")
+
+        // Then
+        XCTAssertEqual(request.task.originalRequest?.httpMethod, adapter.method.rawValue)
+    }
+
+    func testThatSessionManagerCallsRequestAdapterWhenCreatingUploadRequestWithInputStream() {
+        // Given
+        let adapter = HTTPMethodAdapter(method: .get)
+
+        let sessionManager = SessionManager()
+        sessionManager.adapter = adapter
+        sessionManager.startRequestsImmediately = false
+
+        // When
+        let inputStream = InputStream(data: "data".data(using: .utf8)!)
+        let request = sessionManager.upload(inputStream, to: "https://httpbin.org/post")
+
+        // Then
+        XCTAssertEqual(request.task.originalRequest?.httpMethod, adapter.method.rawValue)
+    }
+
+    // MARK: Tests - Request Retrier
+
+    func testThatSessionManagerCallsRequestRetrierWhenRequestEncountersError() {
+        // Given
+        let handler = RequestHandler()
+
+        let sessionManager = SessionManager()
+        sessionManager.adapter = handler
+        sessionManager.retrier = handler
+
+        let expectation = self.expectation(description: "request should eventually fail")
+        var response: DataResponse<Any>?
+
+        // When
+        sessionManager.request("https://httpbin.org/basic-auth/user/password")
+            .validate()
+            .responseJSON { jsonResponse in
+                response = jsonResponse
+                expectation.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout, handler: nil)
+
+        // Then
+        XCTAssertEqual(handler.adaptedCount, 2)
+        XCTAssertEqual(handler.retryCount, 2)
+        XCTAssertEqual(response?.result.isSuccess, false)
+    }
+
+    func testThatSessionManagerCallsAdapterWhenRequestIsRetried() {
+        // Given
+        let handler = RequestHandler()
+        handler.shouldApplyAuthorizationHeader = true
+
+        let sessionManager = SessionManager()
+        sessionManager.adapter = handler
+        sessionManager.retrier = handler
+
+        let expectation = self.expectation(description: "request should eventually fail")
+        var response: DataResponse<Any>?
+
+        // When
+        sessionManager.request("https://httpbin.org/basic-auth/user/password")
+            .validate()
+            .responseJSON { jsonResponse in
+                response = jsonResponse
+                expectation.fulfill()
+            }
+
+        waitForExpectations(timeout: timeout, handler: nil)
+
+        // Then
+        XCTAssertEqual(handler.adaptedCount, 2)
+        XCTAssertEqual(handler.retryCount, 1)
+        XCTAssertEqual(response?.result.isSuccess, true)
+    }
 }
 
 // MARK: -
 
-class ManagerConfigurationHeadersTestCase: BaseTestCase {
+class SessionManagerConfigurationHeadersTestCase: BaseTestCase {
     enum ConfigurationType {
         case `default`, ephemeral, background
     }
@@ -219,7 +445,7 @@ class ManagerConfigurationHeadersTestCase: BaseTestCase {
 //    ⚠️ This test has been removed as a result of rdar://26870455 in Xcode 8 Seed 1
 //    func testThatBackgroundConfigurationHeadersAreSentWithRequest() {
 //        // Given, When, Then
-//        executeAuthorizationHeaderTestForConfigurationType(.background)
+//        executeAuthorizationHeaderTest(for: .background)
 //    }
 
     private func executeAuthorizationHeaderTest(for type: ConfigurationType) {
@@ -250,10 +476,10 @@ class ManagerConfigurationHeadersTestCase: BaseTestCase {
 
         let expectation = self.expectation(description: "request should complete successfully")
 
-        var response: Response<Any, NSError>?
+        var response: DataResponse<Any>?
 
         // When
-        manager.request("https://httpbin.org/headers", withMethod: .get)
+        manager.request("https://httpbin.org/headers")
             .responseJSON { closureResponse in
                 response = closureResponse
                 expectation.fulfill()

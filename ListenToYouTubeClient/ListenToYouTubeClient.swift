@@ -36,7 +36,7 @@ open class ListenToYouTubeClient {
         return SignalProducer<URL, NSError> { observer, disposable in
             let parameters = ["mediaurl": videoURL.absoluteString,
                               "client_urlmap": "none"]
-            Alamofire.request(baseURL.appendingPathComponent("cc/conversioncloud.php"), withMethod: .post, parameters: parameters, encoding: .url, headers: nil).responseString { (response) in
+            Alamofire.request(baseURL.appendingPathComponent("cc/conversioncloud.php"), method: .post, parameters: parameters).responseString { (response) in
                 switch(response.result) {
                 case .success(let jsonp):
                     guard let context = JSContext(), let evaluatedJSONP = context.evaluateScript(jsonp) else {
@@ -68,7 +68,7 @@ open class ListenToYouTubeClient {
     
     internal func conversionStatusProducer(_ statusURL: URL) -> SignalProducer<ListenToYouTubeStatus, NSError> {
         return SignalProducer<ListenToYouTubeStatus, NSError> { observer, disposable in
-            Alamofire.request(statusURL.absoluteString+"&json", withMethod: .get).responseString { (response) in
+            Alamofire.request(statusURL.absoluteString+"&json", method: .get).responseString { (response) in
                 switch(response.result) {
                 case .success(let jsonp):
                     guard let context = JSContext(), let evaluatedJSONP = context.evaluateScript(jsonp) else {

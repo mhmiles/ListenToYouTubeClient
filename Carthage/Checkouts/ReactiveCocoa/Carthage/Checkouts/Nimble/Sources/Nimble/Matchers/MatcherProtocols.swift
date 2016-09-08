@@ -1,4 +1,8 @@
 import Foundation
+// `CGFloat` is in Foundation (swift-corelibs-foundation) on Linux.
+#if _runtime(_ObjC)
+    import CoreGraphics
+#endif
 
 /// Implement this protocol to implement a custom matcher for Swift
 public protocol Matcher {
@@ -81,17 +85,19 @@ public protocol NMBDoubleConvertible {
 
 extension Double : NMBDoubleConvertible {
     public var doubleValue: CDouble {
-        get {
-            return self
-        }
+        return self
     }
 }
 
 extension Float : NMBDoubleConvertible {
     public var doubleValue: CDouble {
-        get {
-            return CDouble(self)
-        }
+        return CDouble(self)
+    }
+}
+
+extension CGFloat: NMBDoubleConvertible {
+    public var doubleValue: CDouble {
+        return CDouble(self)
     }
 }
 
