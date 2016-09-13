@@ -1,2 +1,2 @@
-github "Alamofire/Alamofire" "swift3"
-github "ReactiveCocoa/ReactiveCocoa" "reactive-swift"
+github "Alamofire/Alamofire" ~> 4.0
+github "ReactiveCocoa/ReactiveSwift" "master"
