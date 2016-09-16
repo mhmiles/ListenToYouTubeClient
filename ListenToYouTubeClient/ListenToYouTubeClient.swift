@@ -90,12 +90,12 @@ open class ListenToYouTubeClient {
                             
                         case "convert":
                             if let percent = Int(attributes["percent"] as! String) {
-                                observer.sendNext(ListenToYouTubeStatus.converting(percent))
+                                observer.send(value: ListenToYouTubeStatus.converting(percent))
                             }
                             
                         case "download":
                             if let percent = Int(attributes["percent"] as! String) {
-                                observer.sendNext(ListenToYouTubeStatus.downloading(percent))
+                                observer.send(value: ListenToYouTubeStatus.downloading(percent))
                             }
                             
                         case "finished":
@@ -104,10 +104,10 @@ open class ListenToYouTubeClient {
                             
                             if let streamURL = URL(string: json?["downloadurl"] as! String) {
                                 let result = ListenToYouTubeResult(streamURL: streamURL, title: videoName)
-                                observer.sendNext(ListenToYouTubeStatus.success(result))
+                                observer.send(value: ListenToYouTubeStatus.success(result))
                                 observer.sendCompleted()
                             } else {
-                                observer.sendFailed(NSError(domain: "StreamURLError", code: 0, userInfo: nil))
+                                observer.send(error: NSError(domain: "StreamURLError", code: 0, userInfo: nil))
                             }
                             
                             return
@@ -122,7 +122,7 @@ open class ListenToYouTubeClient {
                     })
                     
                 case .failure(let error):
-                    observer.sendFailed(error as NSError)
+                    observer.send(error: error as NSError)
                 }
             }
         }
