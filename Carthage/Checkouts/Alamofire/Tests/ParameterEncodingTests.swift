@@ -85,7 +85,7 @@ class URLParameterEncodingTestCase: ParameterEncodingTestCase {
     func testURLParameterEncodeOneStringKeyStringValueParameterAppendedToQuery() {
         do {
             // Given
-            var mutableURLRequest = self.urlRequest.urlRequest
+            var mutableURLRequest = self.urlRequest
             var urlComponents = URLComponents(url: mutableURLRequest.url!, resolvingAgainstBaseURL: false)!
             urlComponents.query = "baz=qux"
             mutableURLRequest.url = urlComponents.url
@@ -112,6 +112,36 @@ class URLParameterEncodingTestCase: ParameterEncodingTestCase {
 
             // Then
             XCTAssertEqual(urlRequest.url?.query, "baz=qux&foo=bar")
+        } catch {
+            XCTFail("Test encountered unexpected error: \(error)")
+        }
+    }
+
+    func testURLParameterEncodeStringKeyNSNumberIntegerValueParameter() {
+        do {
+            // Given
+            let parameters = ["foo": NSNumber(value: 25)]
+
+            // When
+            let urlRequest = try encoding.encode(self.urlRequest, with: parameters)
+
+            // Then
+            XCTAssertEqual(urlRequest.url?.query, "foo=25")
+        } catch {
+            XCTFail("Test encountered unexpected error: \(error)")
+        }
+    }
+
+    func testURLParameterEncodeStringKeyNSNumberBoolValueParameter() {
+        do {
+            // Given
+            let parameters = ["foo": NSNumber(value: false)]
+
+            // When
+            let urlRequest = try encoding.encode(self.urlRequest, with: parameters)
+
+            // Then
+            XCTAssertEqual(urlRequest.url?.query, "foo=0")
         } catch {
             XCTFail("Test encountered unexpected error: \(error)")
         }
@@ -499,7 +529,7 @@ class URLParameterEncodingTestCase: ParameterEncodingTestCase {
     func testThatURLParameterEncodingEncodesGETParametersInURL() {
         do {
             // Given
-            var mutableURLRequest = self.urlRequest.urlRequest
+            var mutableURLRequest = self.urlRequest
             mutableURLRequest.httpMethod = HTTPMethod.get.rawValue
             let parameters = ["foo": 1, "bar": 2]
 
@@ -518,7 +548,7 @@ class URLParameterEncodingTestCase: ParameterEncodingTestCase {
     func testThatURLParameterEncodingEncodesPOSTParametersInHTTPBody() {
         do {
             // Given
-            var mutableURLRequest = self.urlRequest.urlRequest
+            var mutableURLRequest = self.urlRequest
             mutableURLRequest.httpMethod = HTTPMethod.post.rawValue
             let parameters = ["foo": 1, "bar": 2]
 
@@ -542,7 +572,7 @@ class URLParameterEncodingTestCase: ParameterEncodingTestCase {
     func testThatURLEncodedInURLParameterEncodingEncodesPOSTParametersInURL() {
         do {
             // Given
-            var mutableURLRequest = self.urlRequest.urlRequest
+            var mutableURLRequest = self.urlRequest
             mutableURLRequest.httpMethod = HTTPMethod.post.rawValue
             let parameters = ["foo": 1, "bar": 2]
 
@@ -647,6 +677,7 @@ class JSONParameterEncodingTestCase: ParameterEncodingTestCase {
 // MARK: -
 
 class PropertyListParameterEncodingTestCase: ParameterEncodingTestCase {
+
     // MARK: Properties
 
     let encoding = PropertyListEncoding.default

@@ -40,7 +40,7 @@ class DownloadInitializationTestCase: BaseTestCase {
         // Then
         XCTAssertNotNil(request.request)
         XCTAssertEqual(request.request?.httpMethod, "GET")
-        XCTAssertEqual(request.request?.urlString, urlString)
+        XCTAssertEqual(request.request?.url?.absoluteString, urlString)
         XCTAssertNil(request.response)
     }
 
@@ -55,7 +55,7 @@ class DownloadInitializationTestCase: BaseTestCase {
         // Then
         XCTAssertNotNil(request.request)
         XCTAssertEqual(request.request?.httpMethod, "GET")
-        XCTAssertEqual(request.request?.urlString, urlString)
+        XCTAssertEqual(request.request?.url?.absoluteString, urlString)
         XCTAssertEqual(request.request?.value(forHTTPHeaderField: "Authorization"), "123456")
         XCTAssertNil(request.response)
     }
@@ -112,18 +112,13 @@ class DownloadResponseTestCase: BaseTestCase {
 
         let expectation = self.expectation(description: "Bytes download progress should be reported: \(urlString)")
 
-        var byteValues: [(bytes: Int64, totalBytes: Int64, totalBytesExpected: Int64)] = []
-        var progressValues: [(completedUnitCount: Int64, totalUnitCount: Int64)] = []
+        var progressValues: [Double] = []
         var response: DefaultDownloadResponse?
 
         // When
         Alamofire.download(urlString)
             .downloadProgress { progress in
-                progressValues.append((progress.completedUnitCount, progress.totalUnitCount))
-            }
-            .downloadProgress { bytesRead, totalBytesRead, totalBytesExpectedToRead in
-                let bytes = (bytes: bytesRead, totalBytes: totalBytesRead, totalBytesExpected: totalBytesExpectedToRead)
-                byteValues.append(bytes)
+                progressValues.append(progress.fractionCompleted)
             }
             .response { resp in
                 response = resp
@@ -140,24 +135,17 @@ class DownloadResponseTestCase: BaseTestCase {
         XCTAssertNil(response?.resumeData)
         XCTAssertNil(response?.error)
 
-        XCTAssertEqual(byteValues.count, progressValues.count)
+        var previousProgress: Double = progressValues.first ?? 0.0
 
-        if byteValues.count == progressValues.count {
-            for (byteValue, progressValue) in zip(byteValues, progressValues) {
-                XCTAssertGreaterThan(byteValue.bytes, 0)
-                XCTAssertEqual(byteValue.totalBytes, progressValue.completedUnitCount)
-                XCTAssertEqual(byteValue.totalBytesExpected, progressValue.totalUnitCount)
-            }
+        for progress in progressValues {
+            XCTAssertGreaterThanOrEqual(progress, previousProgress)
+            previousProgress = progress
         }
 
-        if let lastByteValue = byteValues.last, let lastProgressValue = progressValues.last {
-            let byteValueFractionalCompletion = Double(lastByteValue.totalBytes) / Double(lastByteValue.totalBytesExpected)
-            let progressValueFractionalCompletion = Double(lastProgressValue.0) / Double(lastProgressValue.1)
-
-            XCTAssertEqual(byteValueFractionalCompletion, 1.0)
-            XCTAssertEqual(progressValueFractionalCompletion, 1.0)
+        if let lastProgressValue = progressValues.last {
+            XCTAssertEqual(lastProgressValue, 1.0)
         } else {
-            XCTFail("last item in bytesValues and progressValues should not be nil")
+            XCTFail("last item in progressValues should not be nil")
         }
     }
 
@@ -399,12 +387,19 @@ class DownloadResumeDataTestCase: BaseTestCase {
     func testThatCancelledDownloadResponseDataMatchesResumeData() {
         // Given
         let expectation = self.expectation(description: "Download should be cancelled")
+        var cancelled = false
+
         var response: DefaultDownloadResponse?
 
         // When
         let download = Alamofire.download(urlString)
-        download.downloadProgress { _, totalBytesReceived, _ in
-            if totalBytesReceived > 10_000 { download.cancel() }
+        download.downloadProgress { progress in
+            guard !cancelled else { return }
+
+            if progress.fractionCompleted > 0.1 {
+                download.cancel()
+                cancelled = true
+            }
         }
         download.response { resp in
             response = resp
@@ -417,27 +412,30 @@ class DownloadResumeDataTestCase: BaseTestCase {
         XCTAssertNotNil(response?.request)
         XCTAssertNotNil(response?.response)
         XCTAssertNil(response?.destinationURL)
-        XCTAssertNotNil(response?.resumeData)
         XCTAssertNotNil(response?.error)
 
+        XCTAssertNotNil(response?.resumeData)
         XCTAssertNotNil(download.resumeData)
 
-        if let responseResumeData = response?.resumeData, let resumeData = download.resumeData {
-            XCTAssertEqual(responseResumeData, resumeData)
-        } else {
-            XCTFail("response resume data or resume data was unexpectedly nil")
-        }
+        XCTAssertEqual(response?.resumeData, download.resumeData)
     }
 
     func testThatCancelledDownloadResumeDataIsAvailableWithJSONResponseSerializer() {
         // Given
         let expectation = self.expectation(description: "Download should be cancelled")
+        var cancelled = false
+
         var response: DownloadResponse<Any>?
 
         // When
         let download = Alamofire.download(urlString)
-        download.downloadProgress { _, totalBytesReceived, _ in
-            if totalBytesReceived > 10_000 { download.cancel() }
+        download.downloadProgress { progress in
+            guard !cancelled else { return }
+
+            if progress.fractionCompleted > 0.1 {
+                download.cancel()
+                cancelled = true
+            }
         }
         download.responseJSON { resp in
             response = resp
@@ -450,10 +448,12 @@ class DownloadResumeDataTestCase: BaseTestCase {
         XCTAssertNotNil(response?.request)
         XCTAssertNotNil(response?.response)
         XCTAssertNil(response?.destinationURL)
-        XCTAssertNotNil(response?.resumeData)
         XCTAssertEqual(response?.result.isFailure, true)
         XCTAssertNotNil(response?.result.error)
 
+        XCTAssertNotNil(response?.resumeData)
         XCTAssertNotNil(download.resumeData)
+
+        XCTAssertEqual(response?.resumeData, download.resumeData)
     }
 }

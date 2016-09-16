@@ -204,8 +204,8 @@ class ServerTrustPolicyTestCase: BaseTestCase {
 
     func trustIsValid(_ trust: SecTrust) -> Bool {
         var isValid = false
-
         var result = SecTrustResultType.invalid
+
         let status = SecTrustEvaluate(trust, &result)
 
         if status == errSecSuccess {

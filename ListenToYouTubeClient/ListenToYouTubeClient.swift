@@ -26,9 +26,9 @@ public enum ListenToYouTubeStatus {
 }
 
 open class ListenToYouTubeClient {
-    open static let shared = ListenToYouTubeClient()
+    public static let shared = ListenToYouTubeClient()
     
-    open func audioStreamProducer(_ url: URL) -> SignalProducer<ListenToYouTubeStatus, NSError> {
+    public func audioStreamProducer(_ url: URL) -> SignalProducer<ListenToYouTubeStatus, NSError> {
         return statusURLProducer(url).flatMap(.latest, transform: { self.conversionStatusProducer($0) })
     }
     
@@ -40,27 +40,27 @@ open class ListenToYouTubeClient {
                 switch(response.result) {
                 case .success(let jsonp):
                     guard let context = JSContext(), let evaluatedJSONP = context.evaluateScript(jsonp) else {
-                        observer.sendFailed(NSError(domain: "JSContextError", code: 0, userInfo: nil))
+                        observer.send(error: NSError(domain: "JSContextError", code: 0, userInfo: nil))
                         return
                     }
 
                     if evaluatedJSONP.isUndefined {
-                        observer.sendFailed(NSError(domain: "JSONP error", code: 0, userInfo: nil))
+                        observer.send(error: NSError(domain: "JSONP error", code: 0, userInfo: nil))
                         return
                     }
                     
                     guard let statusURLString = evaluatedJSONP.toDictionary()["statusurl"] as? String else {
-                        observer.sendFailed(NSError(domain: "StatusURLError", code: 0, userInfo: nil))
+                        observer.send(error: NSError(domain: "StatusURLError", code: 0, userInfo: nil))
                         return
                     }
                     
                     if let statusURL = URL(string: statusURLString) {
-                        observer.sendNext(statusURL)
+                        observer.send(value: statusURL)
                         observer.sendCompleted()
                     }
                     
                 case .failure(let error):
-                    observer.sendFailed(error as NSError)
+                    observer.send(error: error as NSError)
                 }
             }
         }
@@ -72,12 +72,12 @@ open class ListenToYouTubeClient {
                 switch(response.result) {
                 case .success(let jsonp):
                     guard let context = JSContext(), let evaluatedJSONP = context.evaluateScript(jsonp) else {
-                         observer.sendFailed(NSError(domain: "JSContextError", code: 0, userInfo: nil))
+                         observer.send(error: NSError(domain: "JSContextError", code: 0, userInfo: nil))
                         return
                     }
                     
                     if evaluatedJSONP.isUndefined {
-                       observer.sendFailed(NSError(domain: "JSONP error", code: 0, userInfo: nil))
+                       observer.send(error: NSError(domain: "JSONP error", code: 0, userInfo: nil))
                         return
                     }
                     
@@ -86,7 +86,7 @@ open class ListenToYouTubeClient {
                     if let status = json?["status"] as? [String: AnyObject], let attributes = status["@attributes"] as? [String: AnyObject] {
                         switch(attributes["step"] as! String) {
                         case "ticket":
-                            observer.sendNext(.waitingForConversion)
+                            observer.send(value: .waitingForConversion)
                             
                         case "convert":
                             if let percent = Int(attributes["percent"] as! String) {
