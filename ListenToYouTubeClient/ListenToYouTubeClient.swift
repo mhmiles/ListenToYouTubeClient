@@ -113,7 +113,7 @@ open class ListenToYouTubeClient {
                             return
                             
                         default:
-                            print("UNHANDLED STATUS: \(attributes["step"])")
+                            print("UNHANDLED STATUS: \(String(describing: attributes["step"]))")
                         }
                     }
                     
