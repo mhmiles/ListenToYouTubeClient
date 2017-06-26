@@ -6,13 +6,21 @@
 //  Copyright (c) 2014 GitHub. All rights reserved.
 //
 
+import Dispatch
 import Foundation
 
+#if os(Linux)
+	import let CDispatch.NSEC_PER_SEC
+#endif
+
 /// Represents a serial queue of work items.
-public protocol SchedulerProtocol {
+public protocol Scheduler: class {
 	/// Enqueues an action on the scheduler.
 	///
 	/// When the work is executed depends on the scheduler in use.
+	///
+	/// - parameters:
+	///   - action: The action to be scheduled.
 	///
 	/// - returns: Optional `Disposable` that can be used to cancel the work
 	///            before it begins.
@@ -22,7 +30,7 @@ public protocol SchedulerProtocol {
 
 /// A particular kind of scheduler that supports enqueuing actions at future
 /// dates.
-public protocol DateSchedulerProtocol: SchedulerProtocol {
+public protocol DateScheduler: Scheduler {
 	/// The current date, as determined by this scheduler.
 	///
 	/// This can be implemented to deterministically return a known date (e.g.,
@@ -32,8 +40,8 @@ public protocol DateSchedulerProtocol: SchedulerProtocol {
 	/// Schedules an action for execution at or after the given date.
 	///
 	/// - parameters:
-	///   - date: Starting time.
-	///   - action: Closure of the action to perform.
+	///   - date: The start date.
+	///   - action: A closure of the action to be performed.
 	///
 	/// - returns: Optional `Disposable` that can be used to cancel the work
 	///            before it begins.
@@ -44,25 +52,29 @@ public protocol DateSchedulerProtocol: SchedulerProtocol {
 	/// given date.
 	///
 	/// - parameters:
-	///   - date: Starting time.
-	///   - repeatingEvery: Repetition interval.
-	///   - withLeeway: Some delta for repetition.
-	///   - action: Closure of the action to perform.
+	///   - date: The start date.
+	///   - interval: A repetition interval.
+	///   - leeway: Some delta for repetition.
+	///   - action: A closure of the action to be performed.
+	///
+	///	- note: If you plan to specify an `interval` value greater than 200,000
+	///			seconds, use `schedule(after:interval:leeway:action)` instead
+	///			and specify your own `leeway` value to avoid potential overflow.
 	///
 	/// - returns: Optional `Disposable` that can be used to cancel the work
 	///            before it begins.
 	@discardableResult
-	func schedule(after date: Date, interval: TimeInterval, leeway: TimeInterval, action: @escaping () -> Void) -> Disposable?
+	func schedule(after date: Date, interval: DispatchTimeInterval, leeway: DispatchTimeInterval, action: @escaping () -> Void) -> Disposable?
 }
 
 /// A scheduler that performs all work synchronously.
-public final class ImmediateScheduler: SchedulerProtocol {
+public final class ImmediateScheduler: Scheduler {
 	public init() {}
 
 	/// Immediately calls passed in `action`.
 	///
 	/// - parameters:
-	///   - action: Closure of the action to perform.
+	///   - action: A closure of the action to be performed.
 	///
 	/// - returns: `nil`.
 	@discardableResult
@@ -77,7 +89,7 @@ public final class ImmediateScheduler: SchedulerProtocol {
 /// If the caller is already running on the main queue when an action is
 /// scheduled, it may be run synchronously. However, ordering between actions
 /// will always be preserved.
-public final class UIScheduler: SchedulerProtocol {
+public final class UIScheduler: Scheduler {
 	private static let dispatchSpecificKey = DispatchSpecificKey<UInt8>()
 	private static let dispatchSpecificValue = UInt8.max
 	private static var __once: () = {
@@ -85,7 +97,24 @@ public final class UIScheduler: SchedulerProtocol {
 			                               value: dispatchSpecificValue)
 	}()
 
-	private var queueLength: Int32 = 0
+	#if os(Linux)
+	private var queueLength: Atomic<Int32> = Atomic(0)
+	#else
+	// `inout` references do not guarantee atomicity. Use `UnsafeMutablePointer`
+	// instead.
+	//
+	// https://lists.swift.org/pipermail/swift-users/Week-of-Mon-20161205/004147.html
+	private let queueLength: UnsafeMutablePointer<Int32> = {
+		let memory = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
+		memory.initialize(to: 0)
+		return memory
+	}()
+
+	deinit {
+		queueLength.deinitialize()
+		queueLength.deallocate(capacity: 1)
+	}
+	#endif
 
 	/// Initializes `UIScheduler`
 	public init() {
@@ -101,37 +130,55 @@ public final class UIScheduler: SchedulerProtocol {
 	/// the action is called instantly.
 	///
 	/// - parameters:
-	///   - action: Closure of the action to perform on the main thread.
+	///   - action: A closure of the action to be performed on the main thread.
 	///
 	/// - returns: `Disposable` that can be used to cancel the work before it
 	///            begins.
 	@discardableResult
 	public func schedule(_ action: @escaping () -> Void) -> Disposable? {
-		let disposable = SimpleDisposable()
-		let actionAndDecrement = {
-			if !disposable.isDisposed {
-				action()
-			}
-
-			OSAtomicDecrement32(&self.queueLength)
-		}
-
-		let queued = OSAtomicIncrement32(&queueLength)
+		let positionInQueue = enqueue()
 
 		// If we're already running on the main queue, and there isn't work
 		// already enqueued, we can skip scheduling and just execute directly.
-		if queued == 1 && DispatchQueue.getSpecific(key: UIScheduler.dispatchSpecificKey) == UIScheduler.dispatchSpecificValue {
-			actionAndDecrement()
+		if positionInQueue == 1 && DispatchQueue.getSpecific(key: UIScheduler.dispatchSpecificKey) == UIScheduler.dispatchSpecificValue {
+			action()
+			dequeue()
+			return nil
 		} else {
-			DispatchQueue.main.async(execute: actionAndDecrement)
-		}
+			let disposable = AnyDisposable()
 
-		return disposable
+			DispatchQueue.main.async {
+				defer { self.dequeue() }
+				guard !disposable.isDisposed else { return }
+				action()
+			}
+
+			return disposable
+		}
+	}
+
+	private func dequeue() {
+		#if os(Linux)
+			queueLength.modify { $0 -= 1 }
+		#else
+			OSAtomicDecrement32(queueLength)
+		#endif
+	}
+
+	private func enqueue() -> Int32 {
+		#if os(Linux)
+		return queueLength.modify { value -> Int32 in
+			value += 1
+			return value
+		}
+		#else
+		return OSAtomicIncrement32(queueLength)
+		#endif
 	}
 }
 
 /// A scheduler backed by a serial GCD queue.
-public final class QueueScheduler: DateSchedulerProtocol {
+public final class QueueScheduler: DateScheduler {
 	/// A singleton `QueueScheduler` that always targets the main thread's GCD
 	/// queue.
 	///
@@ -157,39 +204,43 @@ public final class QueueScheduler: DateSchedulerProtocol {
 	///         the `QueueScheduler` will be serial with respect to each other.
 	///
 	/// - warning: Obsoleted in OS X 10.11
-	@available(OSX, deprecated:10.10, obsoleted:10.11, message:"Use init(qos:, name:) instead")
-	@available(iOS, deprecated:8.0, obsoleted:9.0, message:"Use init(qos:, name:) instead.")
+	@available(OSX, deprecated:10.10, obsoleted:10.11, message:"Use init(qos:name:targeting:) instead")
+	@available(iOS, deprecated:8.0, obsoleted:9.0, message:"Use init(qos:name:targeting:) instead.")
 	public convenience init(queue: DispatchQueue, name: String = "org.reactivecocoa.ReactiveSwift.QueueScheduler") {
-		self.init(internalQueue: DispatchQueue(label: name, attributes: [], target: queue))
+		self.init(internalQueue: DispatchQueue(label: name, target: queue))
 	}
 
-	/// Initializes a scheduler that will target a new serial queue with the
+	/// Initializes a scheduler that creates a new serial queue with the
 	/// given quality of service class.
 	///
 	/// - parameters:
 	///   - qos: Dispatch queue's QoS value.
-	///   - name: Name for the queue in the form of reverse domain.
+	///   - name: A name for the queue in the form of reverse domain.
+	///   - targeting: (Optional) The queue on which this scheduler's work is
+	///     targeted
 	@available(OSX 10.10, *)
 	public convenience init(
 		qos: DispatchQoS = .default,
-		name: String = "org.reactivecocoa.ReactiveSwift.QueueScheduler"
+		name: String = "org.reactivecocoa.ReactiveSwift.QueueScheduler",
+		targeting targetQueue: DispatchQueue? = nil
 	) {
 		self.init(internalQueue: DispatchQueue(
 			label: name,
-			qos: qos
+			qos: qos,
+			target: targetQueue
 		))
 	}
 
 	/// Schedules action for dispatch on internal queue
 	///
 	/// - parameters:
-	///   - action: Closure of the action to schedule.
+	///   - action: A closure of the action to be scheduled.
 	///
 	/// - returns: `Disposable` that can be used to cancel the work before it
 	///            begins.
 	@discardableResult
 	public func schedule(_ action: @escaping () -> Void) -> Disposable? {
-		let d = SimpleDisposable()
+		let d = AnyDisposable()
 
 		queue.async {
 			if !d.isDisposed {
@@ -212,14 +263,14 @@ public final class QueueScheduler: DateSchedulerProtocol {
 	/// Schedules an action for execution at or after the given date.
 	///
 	/// - parameters:
-	///   - date: Starting time.
-	///   - action: Closure of the action to perform.
+	///   - date: The start date.
+	///   - action: A closure of the action to be performed.
 	///
 	/// - returns: Optional `Disposable` that can be used to cancel the work
 	///            before it begins.
 	@discardableResult
 	public func schedule(after date: Date, action: @escaping () -> Void) -> Disposable? {
-		let d = SimpleDisposable()
+		let d = AnyDisposable()
 
 		queue.asyncAfter(wallDeadline: wallTime(with: date)) {
 			if !d.isDisposed {
@@ -231,18 +282,22 @@ public final class QueueScheduler: DateSchedulerProtocol {
 	}
 
 	/// Schedules a recurring action at the given interval and beginning at the
-	/// given start time. A reasonable default timer interval leeway is
+	/// given start date. A reasonable default timer interval leeway is
 	/// provided.
 	///
 	/// - parameters:
-	///   - date: Date to schedule the first action for.
-	///   - repeatingEvery: Repetition interval.
+	///   - date: A date to schedule the first action for.
+	///   - interval: A repetition interval.
 	///   - action: Closure of the action to repeat.
+	///
+	///	- note: If you plan to specify an `interval` value greater than 200,000 
+	///			seconds, use `schedule(after:interval:leeway:action)` instead 
+	///			and specify your own `leeway` value to avoid potential overflow.
 	///
 	/// - returns: Optional disposable that can be used to cancel the work
 	///            before it begins.
 	@discardableResult
-	public func schedule(after date: Date, interval: TimeInterval, action: @escaping () -> Void) -> Disposable? {
+	public func schedule(after date: Date, interval: DispatchTimeInterval, action: @escaping () -> Void) -> Disposable? {
 		// Apple's "Power Efficiency Guide for Mac Apps" recommends a leeway of
 		// at least 10% of the timer interval.
 		return schedule(after: date, interval: interval, leeway: interval * 0.1, action: action)
@@ -251,40 +306,40 @@ public final class QueueScheduler: DateSchedulerProtocol {
 	/// Schedules a recurring action at the given interval with provided leeway,
 	/// beginning at the given start time.
 	///
+	/// - precondition: `interval` must be non-negative number.
+	/// - precondition: `leeway` must be non-negative number.
+	///
 	/// - parameters:
-	///   - date: Date to schedule the first action for.
-	///   - repeatingEvery: Repetition interval.
+	///   - date: A date to schedule the first action for.
+	///   - interval: A repetition interval.
 	///   - leeway: Some delta for repetition interval.
-	///   - action: Closure of the action to repeat.
+	///   - action: A closure of the action to repeat.
 	///
 	/// - returns: Optional `Disposable` that can be used to cancel the work
 	///            before it begins.
 	@discardableResult
-	public func schedule(after date: Date, interval: TimeInterval, leeway: TimeInterval, action: @escaping () -> Void) -> Disposable? {
-		precondition(interval >= 0)
-		precondition(leeway >= 0)
-
-		let nsecInterval = interval * Double(NSEC_PER_SEC)
-		let nsecLeeway = leeway * Double(NSEC_PER_SEC)
+	public func schedule(after date: Date, interval: DispatchTimeInterval, leeway: DispatchTimeInterval, action: @escaping () -> Void) -> Disposable? {
+		precondition(interval.timeInterval >= 0)
+		precondition(leeway.timeInterval >= 0)
 
 		let timer = DispatchSource.makeTimerSource(
 			flags: DispatchSource.TimerFlags(rawValue: UInt(0)),
 			queue: queue
 		)
 		timer.scheduleRepeating(wallDeadline: wallTime(with: date),
-		                        interval: .nanoseconds(Int(nsecInterval)),
-		                        leeway: .nanoseconds(Int(nsecLeeway)))
+		                        interval: interval,
+		                        leeway: leeway)
 		timer.setEventHandler(handler: action)
 		timer.resume()
 
-		return ActionDisposable {
+		return AnyDisposable {
 			timer.cancel()
 		}
 	}
 }
 
 /// A scheduler that implements virtualized time, for use in testing.
-public final class TestScheduler: DateSchedulerProtocol {
+public final class TestScheduler: DateScheduler {
 	private final class ScheduledAction {
 		let date: Date
 		let action: () -> Void
@@ -330,7 +385,7 @@ public final class TestScheduler: DateSchedulerProtocol {
 		scheduledActions.sort { $0.less($1) }
 		lock.unlock()
 
-		return ActionDisposable {
+		return AnyDisposable {
 			self.lock.lock()
 			self.scheduledActions = self.scheduledActions.filter { $0 !== action }
 			self.lock.unlock()
@@ -353,71 +408,86 @@ public final class TestScheduler: DateSchedulerProtocol {
 		return schedule(ScheduledAction(date: currentDate, action: action))
 	}
 
-	/// Schedules an action for execution at or after the given date.
+	/// Schedules an action for execution after some delay.
 	///
 	/// - parameters:
-	///   - date: Starting date.
-	///   - action: Closure of the action to perform.
+	///   - delay: A delay for execution.
+	///   - action: A closure of the action to perform.
 	///
 	/// - returns: Optional disposable that can be used to cancel the work
 	///            before it begins.
 	@discardableResult
-	public func schedule(after delay: TimeInterval, action: @escaping () -> Void) -> Disposable? {
+	public func schedule(after delay: DispatchTimeInterval, action: @escaping () -> Void) -> Disposable? {
 		return schedule(after: currentDate.addingTimeInterval(delay), action: action)
 	}
 
+	/// Schedules an action for execution at or after the given date.
+	///
+	/// - parameters:
+	///   - date: A starting date.
+	///   - action: A closure of the action to perform.
+	///
+	/// - returns: Optional disposable that can be used to cancel the work
+	///            before it begins.
 	@discardableResult
 	public func schedule(after date: Date, action: @escaping () -> Void) -> Disposable? {
 		return schedule(ScheduledAction(date: date, action: action))
 	}
 
 	/// Schedules a recurring action at the given interval, beginning at the
-	/// given start time
+	/// given start date.
+	///
+	/// - precondition: `interval` must be non-negative.
 	///
 	/// - parameters:
-	///   - date: Date to schedule the first action for.
-	///   - repeatingEvery: Repetition interval.
-	///   - action: Closure of the action to repeat.
+	///   - date: A date to schedule the first action for.
+	///   - interval: A repetition interval.
+	///   - disposable: A disposable.
+	///   - action: A closure of the action to repeat.
+	///
+	///	- note: If you plan to specify an `interval` value greater than 200,000
+	///			seconds, use `schedule(after:interval:leeway:action)` instead
+	///			and specify your own `leeway` value to avoid potential overflow.
 	///
 	/// - returns: Optional `Disposable` that can be used to cancel the work
 	///            before it begins.
-	private func schedule(after date: Date, interval: TimeInterval, disposable: SerialDisposable, action: @escaping () -> Void) {
-		precondition(interval >= 0)
+	private func schedule(after date: Date, interval: DispatchTimeInterval, disposable: SerialDisposable, action: @escaping () -> Void) {
+		precondition(interval.timeInterval >= 0)
 
-		disposable.innerDisposable = schedule(after: date) { [unowned self] in
+		disposable.inner = schedule(after: date) { [unowned self] in
 			action()
 			self.schedule(after: date.addingTimeInterval(interval), interval: interval, disposable: disposable, action: action)
 		}
 	}
 
-	/// Schedules a recurring action at the given interval, beginning at the
-	/// given interval (counted from `currentDate`).
+	/// Schedules a recurring action after given delay repeated at the given,
+	/// interval, beginning at the given interval counted from `currentDate`.
 	///
 	/// - parameters:
-	///   - interval: Interval to add to `currentDate`.
-	///   - repeatingEvery: Repetition interval.
+	///   - delay: A delay for action's dispatch.
+	///   - interval: A repetition interval.
 	///	  - leeway: Some delta for repetition interval.
-	///   - action: Closure of the action to repeat.
+	///   - action: A closure of the action to repeat.
 	///
 	/// - returns: Optional `Disposable` that can be used to cancel the work
 	///            before it begins.
 	@discardableResult
-	public func schedule(after delay: TimeInterval, interval: TimeInterval, leeway: TimeInterval = 0, action: @escaping () -> Void) -> Disposable? {
+	public func schedule(after delay: DispatchTimeInterval, interval: DispatchTimeInterval, leeway: DispatchTimeInterval = .seconds(0), action: @escaping () -> Void) -> Disposable? {
 		return schedule(after: currentDate.addingTimeInterval(delay), interval: interval, leeway: leeway, action: action)
 	}
 
 	/// Schedules a recurring action at the given interval with
-	/// provided leeway, beginning at the given start time.
+	/// provided leeway, beginning at the given start date.
 	///
 	/// - parameters:
-	///   - date: Date to schedule the first action for.
-	///   - repeatingEvery: Repetition interval.
+	///   - date: A date to schedule the first action for.
+	///   - interval: A repetition interval.
 	///	  - leeway: Some delta for repetition interval.
-	///   - action: Closure of the action to repeat.
+	///   - action: A closure of the action to repeat.
 	///
 	/// - returns: Optional `Disposable` that can be used to cancel the work
 	///	           before it begins.
-	public func schedule(after date: Date, interval: TimeInterval, leeway: TimeInterval = 0, action: @escaping () -> Void) -> Disposable? {
+	public func schedule(after date: Date, interval: DispatchTimeInterval, leeway: DispatchTimeInterval = .seconds(0), action: @escaping () -> Void) -> Disposable? {
 		let disposable = SerialDisposable()
 		schedule(after: date, interval: interval, disposable: disposable, action: action)
 		return disposable
@@ -429,7 +499,7 @@ public final class TestScheduler: DateSchedulerProtocol {
 	/// This is intended to be used as a way to execute actions that have been
 	/// scheduled to run as soon as possible.
 	public func advance() {
-		advance(by: DBL_EPSILON)
+		advance(by: .nanoseconds(1))
 	}
 
 	/// Advances the virtualized clock by the given interval, dequeuing and
@@ -437,7 +507,7 @@ public final class TestScheduler: DateSchedulerProtocol {
 	///
 	/// - parameters:
 	///   - interval: Interval by which the current date will be advanced.
-	public func advance(by interval: TimeInterval) {
+	public func advance(by interval: DispatchTimeInterval) {
 		lock.lock()
 		advance(to: currentDate.addingTimeInterval(interval))
 		lock.unlock()
@@ -470,7 +540,7 @@ public final class TestScheduler: DateSchedulerProtocol {
 	}
 
 	/// Dequeues and executes all scheduled actions, leaving the scheduler's
-	/// date at `NSDate.distantFuture()`.
+	/// date at `Date.distantFuture()`.
 	public func run() {
 		advance(to: Date.distantFuture)
 	}
@@ -479,8 +549,8 @@ public final class TestScheduler: DateSchedulerProtocol {
 	/// This simulates that user changes device date.
 	///
 	/// - parameters:
-	///   - interval: Interval by which the current date will be retreated.
-	public func rewind(by interval: TimeInterval) {
+	///   - interval: An interval by which the current date will be retreated.
+	public func rewind(by interval: DispatchTimeInterval) {
 		lock.lock()
 		
 		let newDate = currentDate.addingTimeInterval(-interval)

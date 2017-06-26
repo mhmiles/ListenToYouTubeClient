@@ -10,9 +10,10 @@ import Result
 import Nimble
 import Quick
 import ReactiveSwift
+import Dispatch
 
-private extension SignalProtocol {
-	typealias Pipe = (signal: Signal<Value, Error>, observer: Observer<Value, Error>)
+private extension Signal {
+	typealias Pipe = (output: Signal<Value, Error>, input: Signal<Value, Error>.Observer)
 }
 
 private typealias Pipe = Signal<SignalProducer<Int, TestError>, TestError>.Pipe
@@ -26,7 +27,7 @@ class FlattenSpec: QuickSpec {
 
 				beforeEach {
 					pipe = Signal.pipe()
-					disposable = pipe.signal
+					disposable = pipe.output
 						.flatten(flattenStrategy)
 						.observe { _ in }
 				}
@@ -40,25 +41,23 @@ class FlattenSpec: QuickSpec {
 
 					beforeEach {
 						disposed = false
-						pipe.observer.send(value: SignalProducer<Int, TestError> { _, disposable in
-							disposable += ActionDisposable {
-								disposed = true
-							}
+						pipe.input.send(value: SignalProducer<Int, TestError> { _, lifetime in
+							lifetime.observeEnded { disposed = true }
 						})
 					}
 
 					it("should dispose inner signals when outer signal interrupted") {
-						pipe.observer.sendInterrupted()
+						pipe.input.sendInterrupted()
 						expect(disposed) == true
 					}
 
 					it("should dispose inner signals when outer signal failed") {
-						pipe.observer.send(error: .default)
+						pipe.input.send(error: .default)
 						expect(disposed) == true
 					}
 
 					it("should not dispose inner signals when outer signal completed") {
-						pipe.observer.sendCompleted()
+						pipe.input.sendCompleted()
 						expect(disposed) == false
 					}
 				}
@@ -69,6 +68,8 @@ class FlattenSpec: QuickSpec {
 			describeSignalFlattenDisposal(.latest, name: "switchToLatest")
 			describeSignalFlattenDisposal(.merge, name: "merge")
 			describeSignalFlattenDisposal(.concat, name: "concat")
+			describeSignalFlattenDisposal(.concurrent(limit: 1024), name: "concurrent(limit: 1024)")
+			describeSignalFlattenDisposal(.race, name: "race")
 		}
 
 		func describeSignalProducerFlattenDisposal(_ flattenStrategy: FlattenStrategy, name: String) {
@@ -76,10 +77,8 @@ class FlattenSpec: QuickSpec {
 				it("disposes original signal when result signal interrupted") {
 					var disposed = false
 
-					let disposable = SignalProducer<SignalProducer<(), NoError>, NoError> { _, disposable in
-						disposable += ActionDisposable {
-							disposed = true
-						}
+					let disposable = SignalProducer<SignalProducer<(), NoError>, NoError> { _, lifetime in
+						lifetime.observeEnded { disposed = true }
 					}
 						.flatten(flattenStrategy)
 						.start()
@@ -94,8 +93,10 @@ class FlattenSpec: QuickSpec {
 			describeSignalProducerFlattenDisposal(.latest, name: "switchToLatest")
 			describeSignalProducerFlattenDisposal(.merge, name: "merge")
 			describeSignalProducerFlattenDisposal(.concat, name: "concat")
+			describeSignalProducerFlattenDisposal(.concurrent(limit: 1024), name: "concurrent(limit: 1024)")
+			describeSignalProducerFlattenDisposal(.race, name: "race")
 		}
-		
+
 		describe("Signal.flatten()") {
 			it("works with TestError and a TestError Signal") {
 				typealias Inner = Signal<Int, TestError>
@@ -255,19 +256,34 @@ class FlattenSpec: QuickSpec {
 				expect(observed) == 4
 			}
 			
-			it("works with SequenceType as a value") {
+			it("works with Sequence as a value") {
 				let (signal, innerObserver) = Signal<[Int], NoError>.pipe()
 				let sequence = [1, 2, 3]
 				var observedValues = [Int]()
 				
 				signal
-					.flatten(.concat)
+					.flatten()
 					.observeValues { value in
 						observedValues.append(value)
 					}
 				
 				innerObserver.send(value: sequence)
 				expect(observedValues) == sequence
+			}
+
+			it("works with Sequence as a value and any arbitrary error") {
+				_ = Signal<[Int], TestError>.empty
+					.flatten()
+			}
+
+			it("works with Property and any arbitrary error") {
+				_ = Signal<Property<Int>, TestError>.empty
+					.flatten(.latest)
+			}
+
+			it("works with Property and NoError") {
+				_ = Signal<Property<Int>, NoError>.empty
+					.flatten(.latest)
 			}
 		}
 		
@@ -430,18 +446,33 @@ class FlattenSpec: QuickSpec {
 				expect(observed) == 4
 			}
 			
-			it("works with SequenceType as a value") {
+			it("works with Sequence as a value") {
 				let sequence = [1, 2, 3]
 				var observedValues = [Int]()
 				
 				let producer = SignalProducer<[Int], NoError>(value: sequence)
 				producer
-					.flatten(.latest)
+					.flatten()
 					.startWithValues { value in
 						observedValues.append(value)
 					}
 				
 				expect(observedValues) == sequence
+			}
+
+			it("works with Sequence as a value and any arbitrary error") {
+				_ = SignalProducer<[Int], TestError>.empty
+					.flatten()
+			}
+
+			it("works with Property and any arbitrary error") {
+				_ = SignalProducer<Property<Int>, TestError>.empty
+					.flatten(.latest)
+			}
+
+			it("works with Property and NoError") {
+				_ = SignalProducer<Property<Int>, NoError>.empty
+					.flatten(.latest)
 			}
 		}
 		
@@ -603,6 +634,16 @@ class FlattenSpec: QuickSpec {
 				innerObserver.send(value: 4)
 				expect(observed) == 4
 			}
+
+			it("works with Property and any arbitrary error") {
+				_ = Signal<Int, TestError>.empty
+					.flatMap(.latest) { _ in Property(value: 0) }
+			}
+
+			it("works with Property and NoError") {
+				_ = Signal<Int, NoError>.empty
+					.flatMap(.latest) { _ in Property(value: 0) }
+			}
 		}
 		
 		describe("SignalProducer.flatMap()") {
@@ -762,6 +803,16 @@ class FlattenSpec: QuickSpec {
 				outerObserver.send(value: 4)
 				innerObserver.send(value: 4)
 				expect(observed) == 4
+			}
+
+			it("works with Property and any arbitrary error") {
+				_ = SignalProducer<Int, TestError>.empty
+					.flatMap(.latest) { _ in Property(value: 0) }
+			}
+
+			it("works with Property and NoError") {
+				_ = SignalProducer<Int, NoError>.empty
+					.flatMap(.latest) { _ in Property(value: 0) }
 			}
 		}
 		
@@ -957,6 +1008,57 @@ class FlattenSpec: QuickSpec {
 				
 				observer.sendCompleted()
 				expect(lastValue) == 4
+			}
+		}
+
+		describe("FlattenStrategy.concurrent") {
+			func run(_ modifier: (SignalProducer<UInt, NoError>) -> SignalProducer<UInt, NoError>) {
+				let concurrentLimit: UInt = 4
+				let extra: UInt = 100
+
+				let (outer, outerObserver) = Signal<SignalProducer<UInt, NoError>, NoError>.pipe()
+
+				var values: [UInt] = []
+				outer.flatten(.concurrent(limit: concurrentLimit)).observeValues { values.append($0) }
+
+				var started: [UInt] = []
+				var observers: [Signal<UInt, NoError>.Observer] = []
+
+				for i in 0 ..< (concurrentLimit + extra) {
+					let (signal, observer) = Signal<UInt, NoError>.pipe()
+					observers.append(observer)
+
+					let producer = modifier(SignalProducer(signal).prefix(value: i).on(started: { started.append(i) }))
+					outerObserver.send(value: producer)
+				}
+
+				// The producers may be started asynchronously. So these
+				// expectations have to be asynchronous too.
+				expect(values).toEventually(equal(Array(0 ..< concurrentLimit)))
+				expect(started).toEventually(equal(Array(0 ..< concurrentLimit)))
+
+				for i in 0 ..< extra {
+					observers[Int(i)].sendCompleted()
+
+					expect(values).toEventually(equal(Array(0 ... (concurrentLimit + i))))
+					expect(started).toEventually(equal(Array(0 ... (concurrentLimit + i))))
+				}
+			}
+
+			it("should synchronously merge up to the stated limit, buffer any subsequent producers and dequeue them in the submission order") {
+				run { $0 }
+			}
+
+			it("should asynchronously merge up to the stated limit, buffer any subsequent producers and dequeue them in the submission order") {
+				let scheduler: QueueScheduler
+
+				if #available(macOS 10.10, *) {
+					scheduler = QueueScheduler()
+				} else {
+					scheduler = QueueScheduler(queue: DispatchQueue.global(priority: .default))
+				}
+
+				run { $0.start(on: scheduler) }
 			}
 		}
 	}

@@ -17,6 +17,37 @@ final class ResultTests: XCTestCase {
 		XCTAssert(Result(nil, failWith: error) == failure)
 	}
 
+	func testFanout() {
+		let resultSuccess = success.fanout(success)
+		if let (x, y) = resultSuccess.value {
+			XCTAssertTrue(x == "success" && y == "success")
+		} else {
+			XCTFail()
+		}
+
+		let resultFailureBoth = failure.fanout(failure2)
+		XCTAssert(resultFailureBoth.error == error)
+
+		let resultFailureLeft = failure.fanout(success)
+		XCTAssert(resultFailureLeft.error == error)
+
+		let resultFailureRight = success.fanout(failure2)
+		XCTAssert(resultFailureRight.error == error2)
+	}
+
+	func testBimapTransformsSuccesses() {
+		XCTAssertEqual(success.bimap(
+			success: { $0.characters.count },
+			failure: { $0 }
+		) ?? 0, 7)
+	}
+
+	func testBimapTransformsFailures() {
+		XCTAssert(failure.bimap(
+			success: { $0 },
+			failure: { _ in error2 }
+		) == failure2)
+	}
 
 	// MARK: Errors
 
@@ -35,74 +66,82 @@ final class ResultTests: XCTestCase {
 		XCTAssert(Result<(), NSError>.error().function == function)
 	}
 
+//	These tests fail on linux, root cause possibly https://bugs.swift.org/browse/SR-3565
+//  Try again when it's fixed
+	#if !os(Linux)
+
+	func testAnyErrorDelegatesLocalizedDescriptionToUnderlyingError() {
+		XCTAssertEqual(error.errorDescription, "localized description")
+		XCTAssertEqual(error.localizedDescription, "localized description")
+		XCTAssertEqual(error3.errorDescription, "localized description")
+		XCTAssertEqual(error3.localizedDescription, "localized description")
+	}
+
+	func testAnyErrorDelegatesLocalizedFailureReasonToUnderlyingError() {
+		XCTAssertEqual(error.failureReason, "failure reason")
+	}
+
+	func testAnyErrorDelegatesLocalizedRecoverySuggestionToUnderlyingError() {
+		XCTAssertEqual(error.recoverySuggestion, "recovery suggestion")
+	}
+
+	func testAnyErrorDelegatesLocalizedHelpAnchorToUnderlyingError() {
+		XCTAssertEqual(error.helpAnchor, "help anchor")
+	}
+
+	#endif
+
 	// MARK: Try - Catch
 	
 	func testTryCatchProducesSuccesses() {
-		let result: Result<String, NSError> = Result(try tryIsSuccess("success"))
+		let result: Result<String, AnyError> = Result(try tryIsSuccess("success"))
 		XCTAssert(result == success)
 	}
 	
 	func testTryCatchProducesFailures() {
-		#if os(Linux)
-			/// FIXME: skipped on Linux because of crash with swift-3.0-PREVIEW-4.
-			print("Test Case `\(#function)` skipped on Linux because of crash with swift-3.0-PREVIEW-4.")
-		#else
-			let result: Result<String, NSError> = Result(try tryIsSuccess(nil))
-			XCTAssert(result.error == error)
-		#endif
+		let result: Result<String, AnyError> = Result(try tryIsSuccess(nil))
+		XCTAssert(result.error == error)
 	}
 
 	func testTryCatchWithFunctionProducesSuccesses() {
 		let function = { try tryIsSuccess("success") }
 
-		let result: Result<String, NSError> = Result(attempt: function)
+		let result: Result<String, AnyError> = Result(attempt: function)
 		XCTAssert(result == success)
 	}
 
 	func testTryCatchWithFunctionCatchProducesFailures() {
-		#if os(Linux)
-			/// FIXME: skipped on Linux because of crash with swift-3.0-PREVIEW-4.
-			print("Test Case `\(#function)` skipped on Linux because of crash with swift-3.0-PREVIEW-4.")
-		#else
-			let function = { try tryIsSuccess(nil) }
+		let function = { try tryIsSuccess(nil) }
 
-			let result: Result<String, NSError> = Result(attempt: function)
-			XCTAssert(result.error == error)
-		#endif
+		let result: Result<String, AnyError> = Result(attempt: function)
+		XCTAssert(result.error == error)
 	}
 
 	func testMaterializeProducesSuccesses() {
-		let result1 = materialize(try tryIsSuccess("success"))
+		let result1: Result<String, AnyError> = materialize(try tryIsSuccess("success"))
 		XCTAssert(result1 == success)
 
-		let result2: Result<String, NSError> = materialize { try tryIsSuccess("success") }
+		let result2: Result<String, AnyError> = materialize { try tryIsSuccess("success") }
 		XCTAssert(result2 == success)
 	}
 
 	func testMaterializeProducesFailures() {
-		#if os(Linux)
-			/// FIXME: skipped on Linux because of crash with swift-3.0-PREVIEW-4.
-			print("Test Case `\(#function)` skipped on Linux because of crash with swift-3.0-PREVIEW-4.")
-		#else
-			let result1 = materialize(try tryIsSuccess(nil))
-			XCTAssert(result1.error == error)
+		let result1: Result<String, AnyError> = materialize(try tryIsSuccess(nil))
+		XCTAssert(result1.error == error)
 
-			let result2: Result<String, NSError> = materialize { try tryIsSuccess(nil) }
-			XCTAssert(result2.error == error)
-		#endif
+		let result2: Result<String, AnyError> = materialize { try tryIsSuccess(nil) }
+		XCTAssert(result2.error == error)
 	}
 
 	// MARK: Recover
 
 	func testRecoverProducesLeftForLeftSuccess() {
-		let left = Result<String, NSError>.success("left")
+		let left = Result<String, Error>.success("left")
 		XCTAssertEqual(left.recover("right"), "left")
 	}
 
 	func testRecoverProducesRightForLeftFailure() {
-		struct Error: Swift.Error {}
-
-		let left = Result<String, Error>.failure(Error())
+		let left = Result<String, Error>.failure(Error.a)
 		XCTAssertEqual(left.recover("right"), "right")
 	}
 
@@ -169,47 +208,61 @@ final class ResultTests: XCTestCase {
 	}
 
 	func testTryMapProducesFailure() {
-		#if os(Linux)
-			/// FIXME: skipped on Linux because of crash with swift-3.0-PREVIEW-4.
-			print("Test Case `\(#function)` skipped on Linux because of crash with swift-3.0-PREVIEW-4.")
-		#else
-			let result = Result<String, NSError>.success("fail").tryMap(tryIsSuccess)
-			XCTAssert(result == failure)
-		#endif
+		let result = Result<String, AnyError>.success("fail").tryMap(tryIsSuccess)
+		XCTAssert(result == failure)
+	}
+}
+
+final class NoErrorTests: XCTestCase {
+	static var allTests: [(String, (NoErrorTests) -> () throws -> Void)] {
+		return [ ("testEquatable", testEquatable) ]
 	}
 
-	// MARK: Operators
-
-	func testConjunctionOperator() {
-		let resultSuccess = success &&& success
-		if let (x, y) = resultSuccess.value {
-			XCTAssertTrue(x == "success" && y == "success")
-		} else {
-			XCTFail()
-		}
-
-		let resultFailureBoth = failure &&& failure2
-		XCTAssert(resultFailureBoth.error == error)
-
-		let resultFailureLeft = failure &&& success
-		XCTAssert(resultFailureLeft.error == error)
-
-		let resultFailureRight = success &&& failure2
-		XCTAssert(resultFailureRight.error == error2)
+	func testEquatable() {
+		let foo = Result<Int, NoError>(1)
+		let bar = Result<Int, NoError>(1)
+		XCTAssertTrue(foo == bar)
 	}
 }
 
 
 // MARK: - Fixtures
 
-let success = Result<String, NSError>.success("success")
-let error = NSError(domain: "com.antitypical.Result", code: 1, userInfo: nil)
-let error2 = NSError(domain: "com.antitypical.Result", code: 2, userInfo: nil)
-let failure = Result<String, NSError>.failure(error)
-let failure2 = Result<String, NSError>.failure(error2)
+private enum Error: Swift.Error, LocalizedError {
+	case a, b
 
+	var errorDescription: String? {
+		return "localized description"
+	}
+
+	var failureReason: String? {
+		return "failure reason"
+	}
+
+	var helpAnchor: String? {
+		return "help anchor"
+	}
+
+	var recoverySuggestion: String? {
+		return "recovery suggestion"
+	}
+}
+
+let success = Result<String, AnyError>.success("success")
+let error = AnyError(Error.a)
+let error2 = AnyError(Error.b)
+let error3 = AnyError(NSError(domain: "Result", code: 42, userInfo: [NSLocalizedDescriptionKey: "localized description"]))
+let failure = Result<String, AnyError>.failure(error)
+let failure2 = Result<String, AnyError>.failure(error2)
 
 // MARK: - Helpers
+
+extension AnyError: Equatable {
+	public static func ==(lhs: AnyError, rhs: AnyError) -> Bool {
+		return lhs.error._code == rhs.error._code
+			&& lhs.error._domain == rhs.error._domain
+	}
+}
 
 #if !os(Linux)
 
@@ -255,6 +308,9 @@ extension ResultTests {
 			("testMapRewrapsFailures", testMapRewrapsFailures),
 			("testInitOptionalSuccess", testInitOptionalSuccess),
 			("testInitOptionalFailure", testInitOptionalFailure),
+			("testFanout", testFanout),
+			("testBimapTransformsSuccesses", testBimapTransformsSuccesses),
+			("testBimapTransformsFailures", testBimapTransformsFailures),
 			("testErrorsIncludeTheSourceFile", testErrorsIncludeTheSourceFile),
 			("testErrorsIncludeTheSourceLine", testErrorsIncludeTheSourceLine),
 			("testErrorsIncludeTheCallingFunction", testErrorsIncludeTheCallingFunction),
@@ -275,10 +331,17 @@ extension ResultTests {
 //			("testTryProducesSuccessesForOptionalAPI", testTryProducesSuccessesForOptionalAPI),
 			("testTryMapProducesSuccess", testTryMapProducesSuccess),
 			("testTryMapProducesFailure", testTryMapProducesFailure),
-			("testConjunctionOperator", testConjunctionOperator),
+
+//			These tests fail on linux, root cause possibly https://bugs.swift.org/browse/SR-3565
+//          Try again when it's fixed
+//			("testAnyErrorDelegatesLocalizedDescriptionToUnderlyingError", testAnyErrorDelegatesLocalizedDescriptionToUnderlyingError),
+//			("testAnyErrorDelegatesLocalizedFailureReasonToUnderlyingError", testAnyErrorDelegatesLocalizedFailureReasonToUnderlyingError),
+//			("testAnyErrorDelegatesLocalizedRecoverySuggestionToUnderlyingError", testAnyErrorDelegatesLocalizedRecoverySuggestionToUnderlyingError),
+//			("testAnyErrorDelegatesLocalizedHelpAnchorToUnderlyingError", testAnyErrorDelegatesLocalizedHelpAnchorToUnderlyingError),
 		]
 	}
 }
+
 #endif
 
 import Foundation
