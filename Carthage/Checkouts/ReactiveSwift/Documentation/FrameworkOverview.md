@@ -1,7 +1,7 @@
 # Framework Overview
 
 This document contains a high-level description of the different components
-within the ReactiveCocoa framework, and an attempt to explain how they work
+within the ReactiveSwift framework, and an attempt to explain how they work
 together and divide responsibilities. This is meant to be a starting point for
 learning about new modules and finding more specific documentation.
 
@@ -11,7 +11,7 @@ the [Design Guidelines][].
 ## Events
 
 An **event**, represented by the [`Event`][Event] type, is the formalized representation
-of the fact that _something has happened_. In ReactiveCocoa, events are the centerpiece
+of the fact that _something has happened_. In ReactiveSwift, events are the centerpiece
 of communication. An event might represent the press of a button, a piece
 of information received from an API, the occurrence of an error, or the completion
 of a long-running operation. In any case, something generates the events and sends them over a
@@ -20,15 +20,15 @@ of a long-running operation. In any case, something generates the events and sen
 `Event` is an enumerated type representing either a value or one of three
 terminal events:
 
- * The `Next` event provides a new value from the source.
- * The `Failed` event indicates that an error occurred before the signal could
+ * The `value` event provides a new value from the source.
+ * The `failed` event indicates that an error occurred before the signal could
    finish. Events are parameterized by an `ErrorType`, which determines the kind
    of failure that’s permitted to appear in the event. If a failure is not
    permitted, the event can use type `NoError` to prevent any from being
    provided.
- * The `Completed` event indicates that the signal finished successfully, and
+ * The `completed` event indicates that the signal finished successfully, and
    that no more values will be sent by the source.
- * The `Interrupted` event indicates that the signal has terminated due to
+ * The `interrupted` event indicates that the signal has terminated due to
    cancellation, meaning that the operation was neither successful nor
    unsuccessful.
 
@@ -52,11 +52,11 @@ is no random access to values of a signal.
 Signals can be manipulated by applying [primitives][BasicOperators] to them.
 Typical primitives to manipulate a single signal like `filter`, `map` and
 `reduce` are available, as well as primitives to manipulate multiple signals
-at once (`zip`). Primitives operate only on the `Next` events of a signal.
+at once (`zip`). Primitives operate only on the `value` events of a signal.
 
-The lifetime of a signal consists of any number of `Next` events, followed by
-one terminating event, which may be any one of `Failed`, `Completed`, or
-`Interrupted` (but not a combination).
+The lifetime of a signal consists of any number of `value` events, followed by
+one terminating event, which may be any one of `failed`, `completed`, or
+`interrupted` (but not a combination).
 Terminating events are not included in the signal’s values—they must be
 handled specially.
 
@@ -100,25 +100,48 @@ using the `lift` method.
 Furthermore, there are additional primitives that control _when_ and _how_ work
 is started—for example, `times`.
 
-### Buffers
-
-A **buffer**, created by `SignalProducer.buffer()`, is a (optionally bounded)
-queue for [events](#events) that replays those events when new
-[signals](#signals) are created from the producer.
-
-Similar to a [pipe](#pipes), the method returns an [observer](#observers).
-Events sent to this observer will be added to the queue. If the buffer is already
-at capacity when a new value arrives, the earliest (oldest) value will be
-dropped to make room for it.
-
 ## Observers
 
 An **observer** is anything that is waiting or capable of waiting for [events](#events)
-from a [signal](#signals). Within RAC, an observer is represented as
-an [`Observer`][Observer] that accepts [`Event`][Event] values.
+from a [signal](#signals). Within RAC, an observer is represented as an [`Observer`][Observer] that accepts [`Event`][Event] values.
 
 Observers can be implicitly created by using the callback-based versions of the
 `Signal.observe` or `SignalProducer.start` methods.
+
+## Lifetimes
+
+When observing a signal or starting a signal producer, it is important to consider how long the observation should last. For example, when observing a signal in order to update a UI component, it makes sense to stop observing it once the component is no longer on screen. This idea is expressed in ReactiveSwift by the `Lifetime` type.
+
+```swift
+import Foundation
+
+final class SettingsController {
+  // Define a lifetime for instances of this class. When an instance is
+  // deinitialized, the lifetime ends.
+  private let (lifetime, token) = Lifetime.make()
+
+  func observeDefaultsChanged(_ defaults: UserDefaults = .standard) {
+    // `take(during: lifetime)` ensures the observation ends when this object
+    // is deinitialized
+    NotificationCenter.default.reactive
+      .notifications(forName: UserDefaults.didChangeNotification, object: defaults)
+      .take(during: lifetime)
+      .observeValues { [weak self] _ in self?.defaultsChanged(defaults) }
+  }
+
+  private func defaultsChanged(_ defaults: UserDefaults) {
+    // perform some updates
+  }
+}
+```
+
+The `token` is a `Lifetime.Token`, which we need to keep a strong reference to in order for the `Lifetime` to work.
+(Note: It's crucial that there is only a single strong reference to `token`, so that it is deinitialized at the same time as `self`.)
+
+`Lifetime` is useful any time that an observation might outlive the observer:
+
+- In the `NotificationCenter` example above, without a `Lifetime` the observation would never complete (leaking memory and wasting CPU cycles).
+- Consider a signal producer that fires a network request — incorporating a `Lifetime` might allow the request to be automatically cancelled if the observer is deinitialized.
 
 ## Actions
 
@@ -131,20 +154,17 @@ clicked. Actions can also be automatically disabled based on a [property](#prope
 disabled state can be represented in a UI by disabling any controls associated
 with the action.
 
-For interaction with `NSControl` or `UIControl`, RAC provides the
-[`CocoaAction`][CocoaAction] type for bridging actions to Objective-C.
-
 ## Properties
 
-A **property**, represented by the [`PropertyType`][Property] protocol,
+A **property**, represented by the [`PropertyProtocol`][Property],
 stores a value and notifies observers about future changes to that value.
 
 The current value of a property can be obtained from the `value` getter. The
 `producer` getter returns a [signal producer](#signal-producers) that will send
-the property’s current value, followed by all changes over time.
+the property’s current value, followed by all changes over time. The `signal` getter returns a [signal](#signals) that will send all changes over time, but not the initial value.
 
 The `<~` operator can be used to bind properties in different ways. Note that in
-all cases, the target has to be a [`MutablePropertyType`][Property].
+all cases, the target has to be a binding target, represented by the [`BindingTargetProtocol`][BindingTarget]. All mutable property types, represented by the  [`MutablePropertyProtocol`][MutableProperty], are inherently binding targets.
 
 * `property <~ signal` binds a [signal](#signals) to the property, updating the
   property’s value to the latest value sent by the signal.
@@ -153,12 +173,7 @@ all cases, the target has to be a [`MutablePropertyType`][Property].
 * `property <~ otherProperty` binds one property to another, so that the destination
   property’s value is updated whenever the source property is updated.
 
-The [`DynamicProperty`][Property] type can be used to bridge to Objective-C APIs
-that require Key-Value Coding (KVC) or Key-Value Observing (KVO), like
-`NSOperation`. Note that most AppKit and UIKit properties do _not_ support KVO,
-so their changes should be observed through other mechanisms.
-[`MutableProperty`][Property] should be preferred over dynamic properties
-whenever possible!
+Properties provide a number of transformations like `map`, `combineLatest` or `zip` for manipulation similar to [signal](#signals) and [signal producer](#signal-producers)
 
 ## Disposables
 
@@ -168,7 +183,7 @@ for memory management and cancellation.
 When starting a [signal producer](#signal-producers), a disposable will be returned.
 This disposable can be used by the caller to cancel the work that has been started
 (e.g. background processing, network requests, etc.), clean up all temporary
-resources, then send a final `Interrupted` event upon the particular
+resources, then send a final `interrupted` event upon the particular
 [signal](#signals) that was created.
 
 Observing a [signal](#signals) may also return a disposable. Disposing it will
@@ -179,7 +194,7 @@ For more information about cancellation, see the RAC [Design Guidelines][].
 
 ## Schedulers
 
-A **scheduler**, represented by the [`SchedulerType`][Scheduler] protocol, is a
+A **scheduler**, represented by the [`SchedulerProtocol`][Scheduler] protocol, is a
 serial execution queue to perform work or deliver results upon.
 
 [Signals](#signals) and [signal producers](#signal-producers) can be ordered to
@@ -196,15 +211,18 @@ Schedulers are also somewhat similar to `NSOperationQueue`, but schedulers
 do not allow tasks to be reordered or depend on one another.
 
 
-[Design Guidelines]: DesignGuidelines.md
+[Design Guidelines]: APIContracts.md
 [BasicOperators]: BasicOperators.md
 [README]: ../README.md
-[Signal]: ../ReactiveCocoa/Swift/Signal.swift
-[SignalProducer]: ../ReactiveCocoa/Swift/SignalProducer.swift
-[Action]: ../ReactiveCocoa/Swift/Action.swift
-[CocoaAction]: ../ReactiveCocoa/Swift/CocoaAction.swift
-[Disposable]: ../ReactiveCocoa/Swift/Disposable.swift
-[Scheduler]: ../ReactiveCocoa/Swift/Scheduler.swift
-[Property]: ../ReactiveCocoa/Swift/Property.swift
-[Event]: ../ReactiveCocoa/Swift/Event.swift
-[Observer]: ../ReactiveCocoa/Swift/Observer.swift
+[ReactiveCocoa]: https://github.com/ReactiveCocoa/
+[Signal]: ../Sources/Signal.swift
+[SignalProducer]: ../Sources/SignalProducer.swift
+[Action]: ../Sources/Action.swift
+[CocoaAction]: https://github.com/ReactiveCocoa/ReactiveCocoa/blob/master/ReactiveCocoa/CocoaAction.swift
+[Disposable]: ../Sources/Disposable.swift
+[Scheduler]: ../Sources/Scheduler.swift
+[Property]: ../Sources/Property.swift
+[MutableProperty]: ../Sources/Property.swift#L28
+[Event]: ../Sources/Event.swift
+[Observer]: ../Sources/Observer.swift
+[BindingTarget]: ../Sources/UnidirectionalBinding.swift

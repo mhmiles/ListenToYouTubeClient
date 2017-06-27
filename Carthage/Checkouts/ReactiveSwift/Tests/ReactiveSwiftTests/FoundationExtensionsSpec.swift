@@ -6,10 +6,12 @@
 //  Copyright (c) 2015 GitHub. All rights reserved.
 //
 
+import Foundation
+import Dispatch
 import Result
 import Nimble
 import Quick
-import ReactiveSwift
+@testable import ReactiveSwift
 
 extension Notification.Name {
 	static let racFirst = Notification.Name(rawValue: "rac_notifications_test")
@@ -18,14 +20,14 @@ extension Notification.Name {
 
 class FoundationExtensionsSpec: QuickSpec {
 	override func spec() {
-		describe("NSNotificationCenter.rac_notifications") {
+		describe("NotificationCenter.reactive.notifications") {
 			let center = NotificationCenter.default
 
-			it("should send notifications on the producer") {
-				let producer = center.rac_notifications(forName: .racFirst)
+			it("should send notifications on the signal") {
+				let signal = center.reactive.notifications(forName: .racFirst)
 
 				var notif: Notification? = nil
-				let disposable = producer.startWithValues { notif = $0 }
+				let disposable = signal.observeValues { notif = $0 }
 
 				center.post(name: .racAnother, object: nil)
 				expect(notif).to(beNil())
@@ -34,26 +36,81 @@ class FoundationExtensionsSpec: QuickSpec {
 				expect(notif?.name) == .racFirst
 
 				notif = nil
-				disposable.dispose()
+				disposable?.dispose()
 
 				center.post(name: .racFirst, object: nil)
 				expect(notif).to(beNil())
 			}
 
-			it("should send Interrupted when the observed object is freed") {
-				var observedObject: AnyObject? = NSObject()
-				let producer = center.rac_notifications(forName: nil, object: observedObject)
-				observedObject = nil
+			it("should be disposed of if it is not reachable and no observer is attached") {
+				weak var signal: Signal<Notification, NoError>?
+				var isDisposed = false
 
-				var interrupted = false
-				let disposable = producer.startWithInterrupted {
-					interrupted = true
-				}
-				expect(interrupted) == true
+				let disposable: Disposable? = {
+					let innerSignal = center.reactive.notifications(forName: nil)
+						.on(disposed: { isDisposed = true })
 
-				disposable.dispose()
+					signal = innerSignal
+					return innerSignal.observe { _ in }
+				}()
+
+				expect(isDisposed) == false
+				expect(signal).to(beNil())
+
+				disposable?.dispose()
+
+				expect(isDisposed) == true
+				expect(signal).to(beNil())
 			}
 
+			it("should be not disposed of if it still has one or more active observers") {
+				weak var signal: Signal<Notification, NoError>?
+				var isDisposed = false
+
+				let disposable: Disposable? = {
+					let innerSignal = center.reactive.notifications(forName: nil)
+						.on(disposed: { isDisposed = true })
+
+					signal = innerSignal
+					innerSignal.observe { _ in }
+					return innerSignal.observe { _ in }
+				}()
+
+				expect(isDisposed) == false
+				expect(signal).to(beNil())
+
+				disposable?.dispose()
+
+				expect(isDisposed) == false
+				expect(signal).to(beNil())
+			}
+		}
+
+		describe("DispatchTimeInterval") {
+			it("should scale time values as expected") {
+				expect((DispatchTimeInterval.seconds(1) * 0.1).timeInterval).to(beCloseTo(DispatchTimeInterval.milliseconds(100).timeInterval))
+				expect((DispatchTimeInterval.milliseconds(100) * 0.1).timeInterval).to(beCloseTo(DispatchTimeInterval.microseconds(10000).timeInterval))
+
+				expect((DispatchTimeInterval.seconds(5) * 0.5).timeInterval).to(beCloseTo(DispatchTimeInterval.milliseconds(2500).timeInterval))
+				expect((DispatchTimeInterval.seconds(1) * 0.25).timeInterval).to(beCloseTo(DispatchTimeInterval.milliseconds(250).timeInterval))
+			}
+
+			it("should produce the expected TimeInterval values") {
+				expect(DispatchTimeInterval.seconds(1).timeInterval).to(beCloseTo(1.0))
+				expect(DispatchTimeInterval.milliseconds(1).timeInterval).to(beCloseTo(0.001))
+				expect(DispatchTimeInterval.microseconds(1).timeInterval).to(beCloseTo(0.000001, within: 0.0000001))
+				expect(DispatchTimeInterval.nanoseconds(1).timeInterval).to(beCloseTo(0.000000001, within: 0.0000000001))
+
+				expect(DispatchTimeInterval.milliseconds(500).timeInterval).to(beCloseTo(0.5))
+				expect(DispatchTimeInterval.milliseconds(250).timeInterval).to(beCloseTo(0.25))
+			}
+
+			it("should negate as you'd hope") {
+				expect(-DispatchTimeInterval.seconds(1).timeInterval).to(beCloseTo(-1.0))
+				expect(-DispatchTimeInterval.milliseconds(1).timeInterval).to(beCloseTo(-0.001))
+				expect(-DispatchTimeInterval.microseconds(1).timeInterval).to(beCloseTo(-0.000001, within: 0.0000001))
+				expect(-DispatchTimeInterval.nanoseconds(1).timeInterval).to(beCloseTo(-0.000000001, within: 0.0000000001))
+			}
 		}
 	}
 }

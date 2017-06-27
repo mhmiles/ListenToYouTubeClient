@@ -6,10 +6,13 @@
 //  Copyright © 2015 GitHub. All rights reserved.
 //
 
+import Dispatch
+import Foundation
+
 import Result
 import Nimble
 import Quick
-import ReactiveSwift
+@testable import ReactiveSwift
 
 class SignalProducerLiftingSpec: QuickSpec {
 	override func spec() {
@@ -49,6 +52,265 @@ class SignalProducerLiftingSpec: QuickSpec {
 
 				observer.send(error: TestError.default)
 				expect(error) == producerError
+			}
+		}
+
+		describe("lazyMap") {
+
+			describe("with a scheduled binding") {
+				var token: Lifetime.Token!
+				var lifetime: Lifetime!
+				var destination: [String] = []
+				var tupleProducer: SignalProducer<(character: String, other: Int), NoError>!
+				var tupleObserver: Signal<(character: String, other: Int), NoError>.Observer!
+				var theLens: SignalProducer<String, NoError>!
+				var getterCounter: Int = 0
+				var lensScheduler: TestScheduler!
+				var targetScheduler: TestScheduler!
+				var target: BindingTarget<String>!
+
+				beforeEach {
+					destination = []
+					token = Lifetime.Token()
+					lifetime = Lifetime(token)
+
+					let (producer, observer) = SignalProducer<(character: String, other: Int), NoError>.pipe()
+					tupleProducer = producer
+					tupleObserver = observer
+
+					lensScheduler = TestScheduler()
+					targetScheduler = TestScheduler()
+
+					getterCounter = 0
+					theLens = tupleProducer.lazyMap(on: lensScheduler) { (tuple: (character: String, other: Int)) -> String in
+						getterCounter += 1
+						return tuple.character
+					}
+
+					target = BindingTarget<String>(on: targetScheduler, lifetime: lifetime) {
+						destination.append($0)
+					}
+
+					target <~ theLens
+				}
+
+				it("should not propagate values until scheduled") {
+					// Send a value along
+					tupleObserver.send(value: (character: "🎃", other: 42))
+
+					// The destination should not change value, and the getter
+					// should not have evaluated yet, as neither has been scheduled
+					expect(destination) == []
+					expect(getterCounter) == 0
+
+					// Advance both schedulers
+					lensScheduler.advance()
+					targetScheduler.advance()
+
+					// The destination receives the previously-sent value, and the
+					// getter obviously evaluated
+					expect(destination) == ["🎃"]
+					expect(getterCounter) == 1
+				}
+
+				it("should evaluate the getter only when scheduled") {
+					// Send a value along
+					tupleObserver.send(value: (character: "🎃", other: 42))
+
+					// The destination should not change value, and the getter
+					// should not have evaluated yet, as neither has been scheduled
+					expect(destination) == []
+					expect(getterCounter) == 0
+
+					// When the getter's scheduler advances, the getter should
+					// be evaluated, but the destination still shouldn't accept
+					// the new value
+					lensScheduler.advance()
+					expect(getterCounter) == 1
+					expect(destination) == []
+
+					// Sending other values along shouldn't evaluate the getter
+					tupleObserver.send(value: (character: "😾", other: 42))
+					tupleObserver.send(value: (character: "🍬", other: 13))
+					tupleObserver.send(value: (character: "👻", other: 17))
+					expect(getterCounter) == 1
+					expect(destination) == []
+
+					// Push the scheduler along for the lens, and the getter
+					// should evaluate
+					lensScheduler.advance()
+					expect(getterCounter) == 2
+
+					// ...but the destination still won't receive the value
+					expect(destination) == []
+
+					// Finally, pushing the target scheduler along will
+					// propagate only the first and last values
+					targetScheduler.advance()
+					expect(getterCounter) == 2
+					expect(destination) == ["🎃", "👻"]
+				}
+			}
+
+			it("should return the result of the getter on each value change") {
+				let initialValue = (character: "🎃", other: 42)
+				let nextValue = (character: "😾", other: 74)
+
+				let scheduler = TestScheduler()
+				let (tupleProducer, tupleObserver) = SignalProducer<(character: String, other: Int), NoError>.pipe()
+				let theLens: SignalProducer<String, NoError> = tupleProducer.lazyMap(on: scheduler) { $0.character }
+
+				var output: [String] = []
+				theLens.startWithValues { value in
+					output.append(value)
+				}
+
+				tupleObserver.send(value: initialValue)
+
+				scheduler.advance()
+				expect(output) == ["🎃"]
+
+				tupleObserver.send(value: nextValue)
+
+				scheduler.advance()
+				expect(output) == ["🎃", "😾"]
+			}
+
+			it("should evaluate its getter lazily") {
+				let initialValue = (character: "🎃", other: 42)
+				let nextValue = (character: "😾", other: 74)
+
+				let (tupleProducer, tupleObserver) = SignalProducer<(character: String, other: Int), NoError>.pipe()
+
+				let scheduler = TestScheduler()
+				var output: [String] = []
+				var getterEvaluated = false
+				let theLens: SignalProducer<String, NoError> = tupleProducer.lazyMap(on: scheduler) { (tuple: (character: String, other: Int)) -> String in
+					getterEvaluated = true
+					return tuple.character
+				}
+
+				// No surprise here, but the getter should not be evaluated
+				// since the underlying producer has yet to be started.
+				expect(getterEvaluated).to(beFalse())
+
+				// Similarly, sending values won't cause anything to happen.
+				tupleObserver.send(value: initialValue)
+				expect(output).to(beEmpty())
+				expect(getterEvaluated).to(beFalse())
+
+				// Start the signal, appending future values to the output array
+				theLens.startWithValues { value in output.append(value) }
+
+				// Even when the producer has yet to start, there should be no
+				// evaluation of the getter
+				expect(getterEvaluated).to(beFalse())
+
+				// Now we send a value through the producer
+				tupleObserver.send(value: initialValue)
+
+				// The getter should still not be evaluated, as it has not yet
+				// been scheduled
+				expect(getterEvaluated).to(beFalse())
+
+				// Now advance the scheduler to allow things to proceed
+				scheduler.advance()
+
+				// Now the getter gets evaluated, and the output is what we'd
+				// expect
+				expect(getterEvaluated).to(beTrue())
+				expect(output) == ["🎃"]
+
+				// And now subsequent values continue to come through
+				tupleObserver.send(value: nextValue)
+				scheduler.advance()
+				expect(output) == ["🎃", "😾"]
+			}
+
+			it("should evaluate its getter lazily on a different scheduler") {
+				let initialValue = (character: "🎃", other: 42)
+				let nextValue = (character: "😾", other: 74)
+
+				let (tupleProducer, tupleObserver) = SignalProducer<(character: String, other: Int), NoError>.pipe()
+
+				let scheduler = TestScheduler()
+
+				var output: [String] = []
+				var getterEvaluated = false
+				let theLens: SignalProducer<String, NoError> = tupleProducer.lazyMap(on: scheduler) { (tuple: (character: String, other: Int)) -> String in
+					getterEvaluated = true
+					return tuple.character
+				}
+
+				// No surprise here, but the getter should not be evaluated
+				// since the underlying producer has yet to be started.
+				expect(getterEvaluated).to(beFalse())
+
+				// Similarly, sending values won't cause anything to happen.
+				tupleObserver.send(value: initialValue)
+				expect(output).to(beEmpty())
+				expect(getterEvaluated).to(beFalse())
+
+				// Start the signal, appending future values to the output array
+				theLens.startWithValues { value in output.append(value) }
+
+				// Even when the producer has yet to start, there should be no
+				// evaluation of the getter
+				expect(getterEvaluated).to(beFalse())
+
+				tupleObserver.send(value: initialValue)
+
+				// The getter should still not get evaluated, as it was not yet
+				// scheduled
+				expect(getterEvaluated).to(beFalse())
+				expect(output).to(beEmpty())
+
+				scheduler.run()
+
+				// Now that the scheduler's run, things can continue to move forward
+				expect(getterEvaluated).to(beTrue())
+				expect(output) == ["🎃"]
+
+				tupleObserver.send(value: nextValue)
+
+				// Subsequent values should still be held up by the scheduler
+				// not getting run
+				expect(output) == ["🎃"]
+				
+				scheduler.run()
+				
+				expect(output) == ["🎃", "😾"]
+			}
+
+			it("should evaluate its getter lazily on the scheduler we specify") {
+				let initialValue = (character: "🎃", other: 42)
+
+				let (tupleProducer, tupleObserver) = SignalProducer<(character: String, other: Int), NoError>.pipe()
+
+				let labelKey = DispatchSpecificKey<String>()
+				let testQueue = DispatchQueue(label: "test queue", target: .main)
+				testQueue.setSpecific(key: labelKey, value: "test queue")
+				testQueue.suspend()
+				let testScheduler = QueueScheduler(internalQueue: testQueue)
+
+				var output: [String] = []
+				var isOnTestQueue = false
+				let theLens = tupleProducer.lazyMap(on: testScheduler) { (tuple: (character: String, other: Int)) -> String in
+					isOnTestQueue = DispatchQueue.getSpecific(key: labelKey) == "test queue"
+					return tuple.character
+				}
+				
+				// Start the signal, appending future values to the output array
+				theLens.startWithValues { value in output.append(value) }
+				testQueue.resume()
+				
+				expect(isOnTestQueue).to(beFalse())
+				expect(output).to(beEmpty())
+				
+				tupleObserver.send(value: initialValue)
+				
+				expect(isOnTestQueue).toEventually(beTrue())
+				expect(output).toEventually(equal(["🎃"]))
 			}
 		}
 
@@ -98,7 +360,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 			}
 		}
 
-		describe("scan") {
+		describe("scan(_:_:)") {
 			it("should incrementally accumulate a value") {
 				let (baseProducer, observer) = SignalProducer<String, NoError>.pipe()
 				let producer = baseProducer.scan("", +)
@@ -117,7 +379,26 @@ class SignalProducerLiftingSpec: QuickSpec {
 			}
 		}
 
-		describe("reduce") {
+		describe("scan(into:_:)") {
+			it("should incrementally accumulate a value") {
+				let (baseProducer, observer) = SignalProducer<String, NoError>.pipe()
+				let producer = baseProducer.scan(into: "") { $0 += $1 }
+
+				var lastValue: String?
+
+				producer.startWithValues { lastValue = $0 }
+
+				expect(lastValue).to(beNil())
+
+				observer.send(value: "a")
+				expect(lastValue) == "a"
+
+				observer.send(value: "bb")
+				expect(lastValue) == "abb"
+			}
+		}
+
+		describe("reduce(_:_:)") {
 			it("should accumulate one value") {
 				let (baseProducer, observer) = SignalProducer<Int, NoError>.pipe()
 				let producer = baseProducer.reduce(1, +)
@@ -154,6 +435,68 @@ class SignalProducerLiftingSpec: QuickSpec {
 			it("should send the initial value if none are received") {
 				let (baseProducer, observer) = SignalProducer<Int, NoError>.pipe()
 				let producer = baseProducer.reduce(1, +)
+
+				var lastValue: Int?
+				var completed = false
+
+				producer.start { event in
+					switch event {
+					case let .value(value):
+						lastValue = value
+					case .completed:
+						completed = true
+					case .failed, .interrupted:
+						break
+					}
+				}
+
+				expect(lastValue).to(beNil())
+				expect(completed) == false
+
+				observer.sendCompleted()
+
+				expect(lastValue) == 1
+				expect(completed) == true
+			}
+		}
+
+		describe("reduce(into:_:)") {
+			it("should accumulate one value") {
+				let (baseProducer, observer) = SignalProducer<Int, NoError>.pipe()
+				let producer = baseProducer.reduce(into: 1) { $0 += $1 }
+
+				var lastValue: Int?
+				var completed = false
+
+				producer.start { event in
+					switch event {
+					case let .value(value):
+						lastValue = value
+					case .completed:
+						completed = true
+					case .failed, .interrupted:
+						break
+					}
+				}
+
+				expect(lastValue).to(beNil())
+
+				observer.send(value: 1)
+				expect(lastValue).to(beNil())
+
+				observer.send(value: 2)
+				expect(lastValue).to(beNil())
+
+				expect(completed) == false
+				observer.sendCompleted()
+				expect(completed) == true
+
+				expect(lastValue) == 4
+			}
+
+			it("should send the initial value if none are received") {
+				let (baseProducer, observer) = SignalProducer<Int, NoError>.pipe()
+				let producer = baseProducer.reduce(into: 1) { $0 += $1 }
 
 				var lastValue: Int?
 				var completed = false
@@ -516,16 +859,16 @@ class SignalProducerLiftingSpec: QuickSpec {
 
 					if i % 3 == 0 {
 						expectation.append([Int]((i - 2)...i))
-						expect(observedValues as NSArray) == expectation as NSArray
+						expect(observedValues._bridgeToObjectiveC()) == expectation._bridgeToObjectiveC()
 					} else {
-						expect(observedValues as NSArray) == expectation as NSArray
+						expect(observedValues._bridgeToObjectiveC()) == expectation._bridgeToObjectiveC()
 					}
 				}
 
 				observer.sendCompleted()
 
 				expectation.append([7])
-				expect(observedValues as NSArray) == expectation as NSArray
+				expect(observedValues._bridgeToObjectiveC()) == expectation._bridgeToObjectiveC()
 			}
 
 			it("should collect values until it matches a certain value") {
@@ -543,7 +886,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 				}
 
 				producer.startWithCompleted {
-					expect(expectedValues as NSArray) == [] as NSArray
+					expect(expectedValues._bridgeToObjectiveC()) == []._bridgeToObjectiveC()
 				}
 
 				expectedValues
@@ -568,7 +911,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 				}
 
 				producer.startWithCompleted {
-					expect(expectedValues as NSArray) == [] as NSArray
+					expect(expectedValues._bridgeToObjectiveC()) == []._bridgeToObjectiveC()
 				}
 
 				expectedValues
@@ -794,7 +1137,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 					testScheduler.schedule {
 						observer.send(value: 1)
 					}
-					testScheduler.schedule(after: 5) {
+					testScheduler.schedule(after: .seconds(5)) {
 						observer.send(value: 2)
 						observer.sendCompleted()
 					}
@@ -816,14 +1159,14 @@ class SignalProducerLiftingSpec: QuickSpec {
 						}
 					}
 				
-				testScheduler.advance(by: 4) // send initial value
+				testScheduler.advance(by: .seconds(4)) // send initial value
 				expect(result).to(beEmpty())
 				
-				testScheduler.advance(by: 10) // send second value and receive first
+				testScheduler.advance(by: .seconds(10)) // send second value and receive first
 				expect(result) == [ 1 ]
 				expect(completed) == false
 				
-				testScheduler.advance(by: 10) // send second value and receive first
+				testScheduler.advance(by: .seconds(10)) // send second value and receive first
 				expect(result) == [ 1, 2 ]
 				expect(completed) == true
 			}
@@ -882,10 +1225,10 @@ class SignalProducerLiftingSpec: QuickSpec {
 				observer.send(value: 2)
 				expect(values) == [ 0 ]
 
-				scheduler.advance(by: 1.5)
+				scheduler.advance(by: .milliseconds(1500))
 				expect(values) == [ 0, 2 ]
 
-				scheduler.advance(by: 3)
+				scheduler.advance(by: .seconds(3))
 				expect(values) == [ 0, 2 ]
 
 				observer.send(value: 3)
@@ -899,7 +1242,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 				scheduler.advance()
 				expect(values) == [ 0, 2, 3 ]
 
-				scheduler.rewind(by: 2)
+				scheduler.rewind(by: .seconds(2))
 				expect(values) == [ 0, 2, 3 ]
 				
 				observer.send(value: 6)
@@ -959,7 +1302,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 			
 			it("should forward the latest value when the sampler fires") {
 				var result: [String] = []
-				sampledProducer.startWithValues { (left, right) in result.append("\(left)\(right)") }
+				sampledProducer.startWithValues { result.append("\($0.0)\($0.1)") }
 				
 				observer.send(value: 1)
 				observer.send(value: 2)
@@ -969,7 +1312,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 			
 			it("should do nothing if sampler fires before signal receives value") {
 				var result: [String] = []
-				sampledProducer.startWithValues { (left, right) in result.append("\(left)\(right)") }
+				sampledProducer.startWithValues { result.append("\($0.0)\($0.1)") }
 				
 				samplerObserver.send(value: "a")
 				expect(result).to(beEmpty())
@@ -977,7 +1320,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 			
 			it("should send lates value multiple times when sampler fires multiple times") {
 				var result: [String] = []
-				sampledProducer.startWithValues { (left, right) in result.append("\(left)\(right)") }
+				sampledProducer.startWithValues { result.append("\($0.0)\($0.1)") }
 				
 				observer.send(value: 1)
 				samplerObserver.send(value: "a")
@@ -997,13 +1340,13 @@ class SignalProducerLiftingSpec: QuickSpec {
 			}
 			
 			it("should emit an initial value if the sampler is a synchronous SignalProducer") {
-				let producer = SignalProducer<Int, NoError>(values: [1])
+				let producer = SignalProducer<Int, NoError>([1])
 				let sampler = SignalProducer<String, NoError>(value: "a")
 				
 				let result = producer.sample(with: sampler)
 				
 				var valueReceived: String?
-				result.startWithValues { (left, right) in valueReceived = "\(left)\(right)" }
+				result.startWithValues { valueReceived = "\($0.0)\($0.1)" }
 				
 				expect(valueReceived) == "1a"
 			}
@@ -1062,7 +1405,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 			}
 
 			it("should emit an initial value if the sampler is a synchronous SignalProducer") {
-				let producer = SignalProducer<Int, NoError>(values: [1])
+				let producer = SignalProducer<Int, NoError>([1])
 				let sampler = SignalProducer<(), NoError>(value: ())
 				
 				let result = producer.sample(on: sampler)
@@ -1087,12 +1430,14 @@ class SignalProducerLiftingSpec: QuickSpec {
 				}
 
 				var sampledProducer: SignalProducer<Payload, NoError>!
+				var samplerObserver: Signal<(), NoError>.Observer!
 				var observer: Signal<Payload, NoError>.Observer!
 
 				beforeEach {
 					let (producer, incomingObserver) = SignalProducer<Payload, NoError>.pipe()
-					let (sampler, _) = Signal<(), NoError>.pipe()
+					let (sampler, _samplerObserver) = Signal<(), NoError>.pipe()
 					sampledProducer = producer.sample(on: sampler)
+					samplerObserver = _samplerObserver
 					observer = incomingObserver
 				}
 
@@ -1109,6 +1454,138 @@ class SignalProducerLiftingSpec: QuickSpec {
 					disposable.dispose()
 					expect(payloadFreed) == true
 				}
+			}
+		}
+
+		describe("withLatest(from: signal)") {
+			var withLatestProducer: SignalProducer<(Int, String), NoError>!
+			var observer: Signal<Int, NoError>.Observer!
+			var sampleeObserver: Signal<String, NoError>.Observer!
+
+			beforeEach {
+				let (producer, incomingObserver) = SignalProducer<Int, NoError>.pipe()
+				let (samplee, incomingSampleeObserver) = Signal<String, NoError>.pipe()
+				withLatestProducer = producer.withLatest(from: samplee)
+				observer = incomingObserver
+				sampleeObserver = incomingSampleeObserver
+			}
+
+			it("should forward the latest value when the receiver fires") {
+				var result: [String] = []
+				withLatestProducer.startWithValues { result.append("\($0.0)\($0.1)") }
+
+				sampleeObserver.send(value: "a")
+				sampleeObserver.send(value: "b")
+				observer.send(value: 1)
+				expect(result) == [ "1b" ]
+			}
+
+			it("should do nothing if receiver fires before samplee sends value") {
+				var result: [String] = []
+				withLatestProducer.startWithValues { result.append("\($0.0)\($0.1)") }
+
+				observer.send(value: 1)
+				expect(result).to(beEmpty())
+			}
+
+			it("should send latest value with samplee value multiple times when receiver fires multiple times") {
+				var result: [String] = []
+				withLatestProducer.startWithValues { result.append("\($0.0)\($0.1)") }
+
+				sampleeObserver.send(value: "a")
+				observer.send(value: 1)
+				observer.send(value: 2)
+				expect(result) == [ "1a", "2a" ]
+			}
+
+			it("should complete when receiver has completed") {
+				var completed = false
+				withLatestProducer.startWithCompleted { completed = true }
+
+				observer.sendCompleted()
+				expect(completed) == true
+			}
+
+			it("should not affect when samplee has completed") {
+				var event: Signal<(Int, String), NoError>.Event? = nil
+				withLatestProducer.start { event = $0 }
+
+				sampleeObserver.sendCompleted()
+				expect(event).to(beNil())
+			}
+
+			it("should not affect when samplee has interrupted") {
+				var event: Signal<(Int, String), NoError>.Event? = nil
+				withLatestProducer.start { event = $0 }
+
+				sampleeObserver.sendInterrupted()
+				expect(event).to(beNil())
+			}
+		}
+
+		describe("withLatest(from: producer)") {
+			var withLatestProducer: SignalProducer<(Int, String), NoError>!
+			var observer: Signal<Int, NoError>.Observer!
+			var sampleeObserver: Signal<String, NoError>.Observer!
+
+			beforeEach {
+				let (producer, incomingObserver) = SignalProducer<Int, NoError>.pipe()
+				let (samplee, incomingSampleeObserver) = SignalProducer<String, NoError>.pipe()
+				withLatestProducer = producer.withLatest(from: samplee)
+				observer = incomingObserver
+				sampleeObserver = incomingSampleeObserver
+			}
+
+			it("should forward the latest value when the receiver fires") {
+				var result: [String] = []
+				withLatestProducer.startWithValues { result.append("\($0.0)\($0.1)") }
+
+				sampleeObserver.send(value: "a")
+				sampleeObserver.send(value: "b")
+				observer.send(value: 1)
+				expect(result) == [ "1b" ]
+			}
+
+			it("should do nothing if receiver fires before samplee sends value") {
+				var result: [String] = []
+				withLatestProducer.startWithValues { result.append("\($0.0)\($0.1)") }
+
+				observer.send(value: 1)
+				expect(result).to(beEmpty())
+			}
+
+			it("should send latest value with samplee value multiple times when receiver fires multiple times") {
+				var result: [String] = []
+				withLatestProducer.startWithValues { result.append("\($0.0)\($0.1)") }
+
+				sampleeObserver.send(value: "a")
+				observer.send(value: 1)
+				observer.send(value: 2)
+				expect(result) == [ "1a", "2a" ]
+			}
+
+			it("should complete when receiver has completed") {
+				var completed = false
+				withLatestProducer.startWithCompleted { completed = true }
+
+				observer.sendCompleted()
+				expect(completed) == true
+			}
+
+			it("should not affect when samplee has completed") {
+				var event: Signal<(Int, String), NoError>.Event? = nil
+				withLatestProducer.start { event = $0 }
+
+				sampleeObserver.sendCompleted()
+				expect(event).to(beNil())
+			}
+
+			it("should not affect when samplee has interrupted") {
+				var event: Signal<(Int, String), NoError>.Event? = nil
+				withLatestProducer.start { event = $0 }
+
+				sampleeObserver.sendInterrupted()
+				expect(event).to(beNil())
 			}
 		}
 
@@ -1170,7 +1647,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 
 			it("should combine pairs") {
 				var result: [String] = []
-				zipped.startWithValues { (left, right) in result.append("\(left)\(right)") }
+				zipped.startWithValues { result.append("\($0.0)\($0.1)") }
 
 				leftObserver.send(value: 1)
 				leftObserver.send(value: 2)
@@ -1224,7 +1701,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 		describe("materialize") {
 			it("should reify events from the signal") {
 				let (producer, observer) = SignalProducer<Int, TestError>.pipe()
-				var latestEvent: Event<Int, TestError>?
+				var latestEvent: Signal<Int, TestError>.Event?
 				producer
 					.materialize()
 					.startWithValues { latestEvent = $0 }
@@ -1254,7 +1731,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 		}
 
 		describe("dematerialize") {
-			typealias IntEvent = Event<Int, TestError>
+			typealias IntEvent = Signal<Int, TestError>.Event
 			var observer: Signal<IntEvent, NoError>.Observer!
 			var dematerialized: SignalProducer<Int, TestError>!
 			
@@ -1388,7 +1865,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 					}
 				}
 
-				testScheduler.schedule(after: 1) {
+				testScheduler.schedule(after: .seconds(1)) {
 					observer.sendCompleted()
 				}
 
@@ -1414,7 +1891,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 					}
 				}
 
-				testScheduler.schedule(after: 3) {
+				testScheduler.schedule(after: .seconds(3)) {
 					observer.sendCompleted()
 				}
 
@@ -1438,7 +1915,7 @@ class SignalProducerLiftingSpec: QuickSpec {
 			it("should forward original values upon success") {
 				let (baseProducer, observer) = SignalProducer<Int, TestError>.pipe()
 				let producer = baseProducer.attempt { _ in
-					return .success()
+					return .success(())
 				}
 				
 				var current: Int?

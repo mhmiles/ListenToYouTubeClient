@@ -5,10 +5,27 @@ import Foundation
 #endif
 
 /// Implement this protocol to implement a custom matcher for Swift
+@available(*, deprecated, message: "Use to Predicate instead")
 public protocol Matcher {
     associatedtype ValueType
     func matches(_ actualExpression: Expression<ValueType>, failureMessage: FailureMessage) throws -> Bool
     func doesNotMatch(_ actualExpression: Expression<ValueType>, failureMessage: FailureMessage) throws -> Bool
+}
+
+extension Matcher {
+    var predicate: Predicate<ValueType> {
+        return Predicate.fromDeprecatedMatcher(self)
+    }
+
+    var toClosure: (Expression<ValueType>, FailureMessage, Bool) throws -> Bool {
+        return ({ expr, msg, expectedResult in
+            if expectedResult {
+                return try self.matches(expr, failureMessage: msg)
+            } else {
+                return try self.doesNotMatch(expr, failureMessage: msg)
+            }
+        })
+    }
 }
 
 #if _runtime(_ObjC)
@@ -57,13 +74,13 @@ extension NSDictionary : NMBCollection {}
 
 #if _runtime(_ObjC)
 /// Protocol for types that support beginWith(), endWith(), beEmpty() matchers
-@objc public protocol NMBOrderedCollection : NMBCollection {
-    @objc(indexOfObject:)
-    func index(of anObject: Any) -> Int
+@objc public protocol NMBOrderedCollection: NMBCollection {
+    @objc(objectAtIndex:)
+    func object(at index: Int) -> Any
 }
 #else
-public protocol NMBOrderedCollection : NMBCollection {
-    func index(of anObject: Any) -> Int
+public protocol NMBOrderedCollection: NMBCollection {
+    func object(at index: Int) -> Any
 }
 #endif
 
@@ -104,15 +121,25 @@ private let dateFormatter: DateFormatter = {
 
 extension Date: NMBDoubleConvertible {
     public var doubleValue: CDouble {
-        get {
-            return self.timeIntervalSinceReferenceDate
-        }
+        return self.timeIntervalSinceReferenceDate
+    }
+}
+
+extension NSDate: NMBDoubleConvertible {
+    public var doubleValue: CDouble {
+        return self.timeIntervalSinceReferenceDate
     }
 }
 
 extension Date: TestOutputStringConvertible {
     public var testDescription: String {
-        return dateFormatter.string(from: self as Date)
+        return dateFormatter.string(from: self)
+    }
+}
+
+extension NSDate: TestOutputStringConvertible {
+    public var testDescription: String {
+        return dateFormatter.string(from: Date(timeIntervalSinceReferenceDate: self.timeIntervalSinceReferenceDate))
     }
 }
 
