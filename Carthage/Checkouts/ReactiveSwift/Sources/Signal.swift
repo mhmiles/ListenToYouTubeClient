@@ -483,7 +483,7 @@ extension Signal {
 	public func observeCompleted(_ action: @escaping () -> Void) -> Disposable? {
 		return observe(Observer(completed: action))
 	}
-	
+
 	/// Observe `self` for its failure.
 	///
 	/// - parameters:
@@ -496,7 +496,7 @@ extension Signal {
 	public func observeFailed(_ action: @escaping (Error) -> Void) -> Disposable? {
 		return observe(Observer(failed: action))
 	}
-	
+
 	/// Observe `self` for its interruption.
 	///
 	/// - note: If `self` has terminated, the closure would be invoked immediately.
@@ -612,7 +612,7 @@ extension Signal {
 			}
 		}
 	}
-	
+
 	/// Applies `transform` to values from `signal` and forwards values with non `nil` results unwrapped.
 	/// - parameters:
 	///   - transform: A closure that accepts a value from the `value` event and
@@ -730,7 +730,7 @@ extension Signal {
 	/// - returns: A signal that will yield an array of values when `self`
 	///            completes.
 	public func collect() -> Signal<[Value], Error> {
-		return collect { _,_ in false }
+		return collect { _, _ in false }
 	}
 
 	/// Collect at most `count` values from `self`, forward them as a single
@@ -1064,7 +1064,9 @@ extension Signal {
 		return Signal { observer in
 			let disposable = CompositeDisposable()
 
-			_ = disposed.map(disposable.add)
+			if let action = disposed {
+				disposable.add(action)
+			}
 
 			disposable += self.observe { receivedEvent in
 				event?(receivedEvent)
@@ -1096,7 +1098,7 @@ extension Signal {
 }
 
 private struct SampleState<Value> {
-	var latestValue: Value? = nil
+	var latestValue: Value?
 	var isSignalCompleted: Bool = false
 	var isSamplerCompleted: Bool = false
 }
@@ -1136,7 +1138,7 @@ extension Signal {
 						$0.isSignalCompleted = true
 						return $0.isSamplerCompleted
 					}
-					
+
 					if shouldComplete {
 						observer.sendCompleted()
 					}
@@ -1145,7 +1147,7 @@ extension Signal {
 					observer.sendInterrupted()
 				}
 			}
-			
+
 			disposable += sampler.observe { event in
 				switch event {
 				case .value(let samplerValue):
@@ -1158,7 +1160,7 @@ extension Signal {
 						$0.isSamplerCompleted = true
 						return $0.isSignalCompleted
 					}
-					
+
 					if shouldComplete {
 						observer.sendCompleted()
 					}
@@ -1174,7 +1176,7 @@ extension Signal {
 			return disposable
 		}
 	}
-	
+
 	/// Forward the latest value from `self` whenever `sampler` sends a `value`
 	/// event.
 	///
@@ -1323,17 +1325,17 @@ extension Signal {
 	public func skip(until trigger: Signal<(), NoError>) -> Signal<Value, Error> {
 		return Signal { observer in
 			let disposable = SerialDisposable()
-			
+
 			disposable.inner = trigger.observe { event in
 				switch event {
 				case .value, .completed:
 					disposable.inner = self.observe(observer)
-					
+
 				case .failed, .interrupted:
 					break
 				}
 			}
-			
+
 			return disposable
 		}
 	}
@@ -1614,13 +1616,13 @@ extension Signal {
 					while (buffer.count + 1) > count {
 						buffer.remove(at: 0)
 					}
-					
+
 					buffer.append(value)
 				case let .failed(error):
 					observer.send(error: error)
 				case .completed:
 					buffer.forEach(observer.send(value:))
-					
+
 					observer.sendCompleted()
 				case .interrupted:
 					observer.sendInterrupted()
@@ -1661,7 +1663,7 @@ extension Signal {
 	public func zip<U>(with other: Signal<U, Error>) -> Signal<(Value, U), Error> {
 		return Signal.zip(self, other)
 	}
-	
+
 	/// Forward the latest value on `scheduler` after at least `interval`
 	/// seconds have passed since *the returned signal* last sent a value.
 	///
@@ -1740,7 +1742,7 @@ extension Signal {
 						}
 						return state.pendingValue
 					}
-					
+
 					if let pendingValue = pendingValue {
 						observer.send(value: pendingValue)
 					}
@@ -1840,7 +1842,7 @@ extension Signal {
 			return disposable
 		}
 	}
-	
+
 	/// Forward the latest value on `scheduler` after at least `interval`
 	/// seconds have passed since `self` last sent a value.
 	///
@@ -1871,7 +1873,7 @@ extension Signal {
 		precondition(interval >= 0)
 
 		let d = SerialDisposable()
-		
+
 		return Signal { observer in
 			return self.observe { event in
 				switch event {
@@ -1906,7 +1908,7 @@ extension Signal {
 	public func uniqueValues<Identity: Hashable>(_ transform: @escaping (Value) -> Identity) -> Signal<Value, Error> {
 		return Signal { observer in
 			var seenValues: Set<Identity> = []
-			
+
 			return self
 				.observe { event in
 					switch event {
@@ -1916,7 +1918,7 @@ extension Signal {
 						if inserted {
 							fallthrough
 						}
-						
+
 					case .failed, .completed, .interrupted:
 						observer.action(event)
 					}
@@ -1940,8 +1942,8 @@ extension Signal where Value: Hashable {
 }
 
 private struct ThrottleState<Value> {
-	var previousDate: Date? = nil
-	var pendingValue: Value? = nil
+	var previousDate: Date?
+	var pendingValue: Value?
 }
 
 private enum ThrottleWhileState<Value> {
@@ -1959,42 +1961,48 @@ private enum ThrottleWhileState<Value> {
 	}
 }
 
-private protocol SignalAggregateStrategy {
+private protocol SignalAggregateStrategy: class {
 	/// Update the latest value of the signal at `position` to be `value`.
 	///
 	/// - parameters:
 	///   - value: The latest value emitted by the signal at `position`.
 	///   - position: The position of the signal.
-	///
-	/// - returns: `true` if the aggregating signal should terminate as a result of the
-	///            update. `false` otherwise.
-	mutating func update(_ value: Any, at position: Int) -> Bool
+	func update(_ value: Any, at position: Int)
 
 	/// Record the completion of the signal at `position`.
 	///
 	/// - parameters:
 	///   - position: The position of the signal.
-	///
-	/// - returns: `true` if the aggregating signal should terminate as a result of the
-	///            completion. `false` otherwise.
-	mutating func complete(at position: Int) -> Bool
+	func complete(at position: Int)
 
-	init(count: Int, action: @escaping (ContiguousArray<Any>) -> Void)
+	init(count: Int, action: @escaping (AggregateStrategyEvent) -> Void)
+}
+
+private enum AggregateStrategyEvent {
+	case value(ContiguousArray<Any>)
+	case completed
 }
 
 extension Signal {
-	private struct CombineLatestStrategy: SignalAggregateStrategy {
+	// Threading of `CombineLatestStrategy` and `ZipStrategy`.
+	//
+	// The threading models of these strategies mirror that of `Signal.Core` to allow
+	// recursive termial event from the upstreams that is triggered by the combined
+	// values.
+	//
+	// The strategies do not unique the delivery of `completed`, since `Signal` already
+	// guarantees that no event would ever be delivered after a terminal event.
+
+	private final class CombineLatestStrategy: SignalAggregateStrategy {
 		private enum Placeholder {
 			case none
 		}
 
-		private var values: ContiguousArray<Any>
-		private var completionCount: Int
-		private let action: (ContiguousArray<Any>) -> Void
+		var values: ContiguousArray<Any>
 
 		private var _haveAllSentInitial: Bool
 		private var haveAllSentInitial: Bool {
-			mutating get {
+			get {
 				if _haveAllSentInitial {
 					return true
 				}
@@ -2004,47 +2012,74 @@ extension Signal {
 			}
 		}
 
-		mutating func update(_ value: Any, at position: Int) -> Bool {
+		private let count: Int
+		private let lock: Lock
+
+		private let completion: Atomic<Int>
+		private let action: (AggregateStrategyEvent) -> Void
+
+		func update(_ value: Any, at position: Int) {
+			lock.lock()
 			values[position] = value
 
 			if haveAllSentInitial {
-				action(values)
+				action(.value(values))
 			}
 
-			return false
+			lock.unlock()
+
+			if completion.value == self.count, lock.try() {
+				action(.completed)
+				lock.unlock()
+			}
 		}
 
-		mutating func complete(at position: Int) -> Bool {
-			completionCount += 1
-			return completionCount == values.count
+		func complete(at position: Int) {
+			let count: Int = completion.modify { count in
+				count += 1
+				return count
+			}
+
+			if count == self.count, lock.try() {
+				action(.completed)
+				lock.unlock()
+			}
 		}
 
-		init(count: Int, action: @escaping (ContiguousArray<Any>) -> Void) {
-			values = ContiguousArray(repeating: Placeholder.none, count: count)
-			completionCount = 0
-			_haveAllSentInitial = false
+		init(count: Int, action: @escaping (AggregateStrategyEvent) -> Void) {
+			self.count = count
+			self.lock = Lock.make()
+			self.values = ContiguousArray(repeating: Placeholder.none, count: count)
+			self._haveAllSentInitial = false
+			self.completion = Atomic(0)
 			self.action = action
 		}
 	}
 
-	private struct ZipStrategy: SignalAggregateStrategy {
+	private final class ZipStrategy: SignalAggregateStrategy {
+		private let stateLock: Lock
+		private let sendLock: Lock
+
 		private var values: ContiguousArray<[Any]>
+		private var canEmit: Bool {
+			return values.reduce(true) { $0 && !$1.isEmpty }
+		}
+
+		private var hasConcurrentlyCompleted: Bool
 		private var isCompleted: ContiguousArray<Bool>
-		private let action: (ContiguousArray<Any>) -> Void
 
 		private var hasCompletedAndEmptiedSignal: Bool {
 			return Swift.zip(values, isCompleted).contains(where: { $0.0.isEmpty && $0.1 })
-		}
-
-		private var canEmit: Bool {
-			return values.reduce(true) { $0 && !$1.isEmpty }
 		}
 
 		private var areAllCompleted: Bool {
 			return isCompleted.reduce(true) { $0 && $1 }
 		}
 
-		mutating func update(_ value: Any, at position: Int) -> Bool {
+		private let action: (AggregateStrategyEvent) -> Void
+
+		func update(_ value: Any, at position: Int) {
+			stateLock.lock()
 			values[position].append(value)
 
 			if canEmit {
@@ -2055,33 +2090,61 @@ extension Signal {
 					buffer.append(values[index].removeFirst())
 				}
 
-				action(buffer)
+				let shouldComplete = areAllCompleted || hasCompletedAndEmptiedSignal
+				sendLock.lock()
+				stateLock.unlock()
 
-				if hasCompletedAndEmptiedSignal {
-					return true
+				action(.value(buffer))
+
+				if shouldComplete {
+					action(.completed)
+				}
+
+				sendLock.unlock()
+
+				stateLock.lock()
+
+				if hasConcurrentlyCompleted {
+					sendLock.lock()
+					action(.completed)
+					sendLock.unlock()
 				}
 			}
 
-			return false
+			stateLock.unlock()
 		}
 
-		mutating func complete(at position: Int) -> Bool {
+		func complete(at position: Int) {
+			stateLock.lock()
 			isCompleted[position] = true
 
-			// `zip` completes when all signals has completed, or any of the signals
-			// has completed without any buffered value.
-			return hasCompletedAndEmptiedSignal || areAllCompleted
+			if hasConcurrentlyCompleted || areAllCompleted || hasCompletedAndEmptiedSignal {
+				if sendLock.try() {
+					stateLock.unlock()
+
+					action(.completed)
+					sendLock.unlock()
+					return
+				}
+
+				hasConcurrentlyCompleted = true
+			}
+
+			stateLock.unlock()
 		}
 
-		init(count: Int, action: @escaping (ContiguousArray<Any>) -> Void) {
-			values = ContiguousArray(repeating: [], count: count)
-			isCompleted = ContiguousArray(repeating: false, count: count)
+		init(count: Int, action: @escaping (AggregateStrategyEvent) -> Void) {
+			self.values = ContiguousArray(repeating: [], count: count)
+			self.hasConcurrentlyCompleted = false
+			self.isCompleted = ContiguousArray(repeating: false, count: count)
 			self.action = action
+			self.sendLock = Lock.make()
+			self.stateLock = Lock.make()
 		}
 	}
 
 	private final class AggregateBuilder<Strategy: SignalAggregateStrategy> {
-		fileprivate var startHandlers: [(_ index: Int, _ strategy: Atomic<Strategy>, _ action: @escaping (Signal<Never, Error>.Event) -> Void) -> Disposable?]
+		fileprivate var startHandlers: [(_ index: Int, _ strategy: Strategy, _ action: @escaping (Signal<Never, Error>.Event) -> Void) -> Disposable?]
 
 		init() {
 			self.startHandlers = []
@@ -2093,22 +2156,10 @@ extension Signal {
 				return signal.observe { event in
 					switch event {
 					case let .value(value):
-						let shouldComplete = strategy.modify {
-							return $0.update(value, at: index)
-						}
-
-						if shouldComplete {
-							action(.completed)
-						}
+						strategy.update(value, at: index)
 
 					case .completed:
-						let shouldComplete = strategy.modify {
-							return $0.complete(at: index)
-						}
-
-						if shouldComplete {
-							action(.completed)
-						}
+						strategy.complete(at: index)
 
 					case .interrupted:
 						action(.interrupted)
@@ -2126,17 +2177,20 @@ extension Signal {
 	private convenience init<Strategy: SignalAggregateStrategy>(_ builder: AggregateBuilder<Strategy>, _ transform: @escaping (ContiguousArray<Any>) -> Value) {
 		self.init { observer in
 			let disposables = CompositeDisposable()
-			let strategy = Atomic(Strategy(count: builder.startHandlers.count) { observer.send(value: transform($0)) })
+			let strategy = Strategy(count: builder.startHandlers.count) { event in
+				switch event {
+				case let .value(value):
+					observer.send(value: transform(value))
+				case .completed:
+					observer.sendCompleted()
+				}
+			}
 
 			for (index, action) in builder.startHandlers.enumerated() where !disposables.isDisposed {
 				disposables += action(index, strategy) { observer.action($0.map { _ in fatalError() }) }
 			}
 
-			return AnyDisposable {
-				strategy.modify { _ in
-					disposables.dispose()
-				}
-			}
+			return disposables
 		}
 	}
 
@@ -2465,7 +2519,7 @@ extension Signal where Value == Bool {
 	public func negate() -> Signal<Value, Error> {
 		return self.map(!)
 	}
-	
+
 	/// Create a signal that computes a logical AND between the latest values of `self`
 	/// and `signal`.
 	///
@@ -2476,7 +2530,7 @@ extension Signal where Value == Bool {
 	public func and(_ signal: Signal<Value, Error>) -> Signal<Value, Error> {
 		return self.combineLatest(with: signal).map { $0.0 && $0.1 }
 	}
-	
+
 	/// Create a signal that computes a logical OR between the latest values of `self`
 	/// and `signal`.
 	///
